@@ -1,8 +1,4 @@
 <html>
-<title>hellow-world</title>
-<head>
-<script></script>
-</head>
 <body>
   <table>
     <tr>
