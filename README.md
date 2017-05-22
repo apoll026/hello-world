@@ -1,10 +1,5 @@
 <html>
 <head>
-  <script language="javascript">
-    function o_clikck(){
-      alert("hi");
-    }
-  </script>
 </head>
 <body>
   <table>
