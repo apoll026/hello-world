@@ -81,7 +81,24 @@
     > exit
     > redis-server --service-stop
 ```
-
+4. auth 확인
+'''
+   > redis-cli -p 679
+   127.0.0.1:6379> config get requirepass
+   1) "requirepass"
+   2) ""
+   127.0.0.1:6379> config get requirepass whdlstm
+   (error) ERR Wrong number of arguments for CONFIG get
+   127.0.0.1:6379> config set requirepass whdlstm
+   OK
+   127.0.0.1:6379> config geet requirepass
+   (error) NOAUTH Authentication required.
+   127.0.0.1:6379> auth whdlstm
+   OK
+   127.0.0.1:6379> config get requirepass
+   1) "requirepass"
+   2) "whdlstm"
+'''
 ----
 
 ## Import
