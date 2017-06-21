@@ -82,7 +82,7 @@
     > redis-server --service-stop
 ```
 4. auth 확인
-'''
+```
    > redis-cli -p 679
    127.0.0.1:6379> config get requirepass
    1) "requirepass"
@@ -98,7 +98,7 @@
    127.0.0.1:6379> config get requirepass
    1) "requirepass"
    2) "whdlstm"
-'''
+```
 ----
 
 ## Import
