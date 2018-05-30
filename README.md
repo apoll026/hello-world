@@ -105,7 +105,7 @@
 
 #### Project import
 1. 이클립스를 실행한 후 [참조](http://devmonster.tistory.com/38)를 참고하여 '3.저장소에서 프로젝트 가져오기' 이후를 따라 진행
-2. SVN Repository URL - https://203.249.128.126/svn/JIMS/JIMS_SRC/trunk
+2. SVN Repository URL - https://XXX.XXX.XXX.XXX/svn/JIMS/JIMS_SRC/trunk
 
 #### First build for web
 1. Download [GIT](https://git-scm.com/downloads) - 설치
