@@ -160,14 +160,13 @@
 3. gulp release (배포용 소스 생성)
 
 #### [Angularjs 구동순서]
-▶ Wildfly Server Start
-▶ Maven build 실행
-▶ 개발 Web Site 폴더 이동 gulp serve 실행
-▶ gulp 서버가 구동되지 않을경우
+1. Wildfly Server Start
+2. Maven build 실행
+3. 개발 Web Site 폴더 이동 gulp serve 실행
+4. gulp 서버가 구동되지 않을경우
    : node –v 확인, npm –v 확인
-▶ node js 가 설치않됬을 경우
+5. node js 가 설치않됬을 경우
    : Node js 다운로드 설치
    : Npm install
    : Npm install –g gulp
-
 ----
