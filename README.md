@@ -173,3 +173,7 @@
 
 #### [WINDOWS PHP 실행시 mysql_init() 오류해결]
  1. PHP설치 폴더의 php.ini 파일을 Windows 폴더 밑으로 잘라내어 붙여넣기 후 Apache 서버를 restart함.
+----
+
+#### [JNI ]
+1. 
