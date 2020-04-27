@@ -162,7 +162,7 @@
 #### [Angularjs 구동순서]
 1. Wildfly Server Start
 2. Maven build 실행
-3. 개발 Web Site 폴더 이동 gulp serve 실행
+3. 개발 Web Site 폴더 이동 gulp serve 실행,  background 실행시 nohup gulp serve &
 4. gulp 서버가 구동되지 않을경우
    : node –v 확인, npm –v 확인
 5. node js 가 설치않됬을 경우
