@@ -176,4 +176,13 @@
 ----
 
 #### [JNI ]
-1. 
+1. javac Class 파일 생성
+2. javah 로 jni.h 파일 생성 후 c++ 프로그램 개발
+
+#### [.Net Quartz]
+1. NuGet 패키지 관리에서 Quartz 설치
+2. 프로젝트 파일에 참조 위치에 Quartz.dll 확인
+3. 현재 IIS Setting 후 페이지 실행시 Quartz동작만 확인함. Quartz 동작을 Spring이나 다른 프레임웍을 통해 동작될수있도록 개발해야함.
+
+#### [WSL 개발]
+
