@@ -186,3 +186,115 @@
 
 #### [WSL 개발]
 
+#### [guacamol-server 설치]
+* linux Ubuntu 개발시 오류 체크
+configure: error: "libpng is required for writing png messages" 오류 발생시
+[VNC]
+apt-get install libvncserver-dev
+[RDP]
+apt-get install libfreerdp-dev libvorbis-dev
+[SSH]
+apt-get install libssh-dev libpango1.0-dev
+
+설치 진행
+1. $ sudo apt-get install make gcc g++ libcairo2-dev libjpeg-turbo8-dev libpng-dev libtool-bin libossp-uuid-dev libavcodec-dev libavutil-dev libswscale-dev freerdp2-dev libpango1.0-dev libssh2-1-dev libvncserver-dev libtelnet-dev libssl-dev libvorbis-dev libwebp-dev
+2. 다운로드 경로 및 압축파일
+$ wget https://downloads.apache.org/guacamole/1.2.0/source/guacamole-server-1.2.0.tar.gz
+3. 압축해제
+$ tar -xvf guacamole-server-1.2.0.tar.gz
+$ cd guacamole-server-1.2.0
+4. 설치
+$ ./configure --with-init-dir=/etc/init.d
+5. 설치 순차적 처리
+$ sudo make
+$ sudo make install
+6. ldconfig 명령을 실행하여 관련 링크를 만들고 Guacamole 서버 디렉터리의 가장 최근 공유 라이브러리에 캐시합니다.
+$ sudo ldconfig
+7. Guacamole 서버를 실행하기 위해 Guacamole Daemon (guacd)을 시작하고 부팅시 활성화하고 표시된대로 상태를 확인합니다.
+$ sudo systemctl start guacd
+$ sudo systemctl enable guacd
+$ sudo systemctl status guacd 
+8. Tomcat 서버는 브라우저를 통해 서버에 연결하는 사용자에게 Guacamole 클라이언트 콘텐츠를 제공하는 데 사용되므로 필수 사항입니다. 다음 명령을 실행하여 Tomcat을 설치하십시오.
+$ sudo apt install tomcat9 tomcat9-admin tomcat9-common tomcat9-user
+9. 설치시 Tomcat 서버가 실행 중이어야합니다. 다음과 같이 서버의 상태를 확인할 수 있습니다.
+$ sudo systemctl status tomcat
+10. Tomcat이 실행되고 있지 않으면 부팅시 시작하고 활성화합니다.
+$ sudo systemctl start tomcat
+$ sudo systemctl enable tomcat
+11. 기본적으로 Tomcat은 포트 8080에서 실행되며 UFW가 실행중인 경우 다음과 같이이 포트를 허용해야합니다.
+$ sudo ufw allow 8080/tcp
+$ sudo ufw reload
+12. Tomcat 서버가 설치된 상태에서 사용자가 서버에 연결할 수있는 Java 기반 웹 애플리케이션 인 Guacamole 클라이언트 설치를 진행합니다.
+먼저 그림과 같이 구성 디렉토리를 생성합니다.
+$ sudo mkdir /etc/guacamole
+13. 그림과 같이 명령을 사용하여 Guacamole 클라이언트 바이너리를/etc/guacamole 디렉토리에 다운로드합니다.
+$ sudo wget https://downloads.apache.org/guacamole/1.2.0/binary/guacamole-1.2.0.war -O /etc/guacamole/guacamole.war
+14. 다운로드가 완료되면 다음과 같이 Tomcat WebApps 디렉토리에 대한 심볼릭 링크를 만듭니다.
+$ ln -s /etc/guacamole/guacamole.war /var/lib/tomcat9/webapps/
+15. 웹 앱을 배포하려면 Tomcat 서버와 Guacamole 데몬을 모두 다시 시작합니다.
+$ sudo systemctl restart tomcat9
+$ sudo systemctl restart guacd
+Guacamole과 관련된 두 가지 주요 구성 파일이 있습니다. "Guacamole에서 사용하는/etc/guacamole 및 /etc/guacamole/guacamole.properties 파일 및 확장 기능입니다.
+16. 계속하기 전에 확장과 라이브러리를위한 디렉토리를 만들어야합니다.
+$ sudo mkdir /etc/guacamole/{extensions,lib}
+17. 다음으로 홈 디렉토리 환경 변수를 구성하고/etc/default/tomcat9 구성 파일에 추가합니다.
+$ sudo echo "GUACAMOLE_HOME=/etc/guacamole" >> /etc/default/tomcat9
+18. Guacamole이 Guacamole 데몬 (guacd)에 연결하는 방법을 결정하기 위해 그림과 같이 guacamole.properties 파일을 생성합니다.
+$ sudo vim /etc/guacamole/guacamole.properties
+아래 내용을 추가하고 파일을 저장하십시오.
+
+guacd-hostname: localhost
+guacd-port:     4822
+user-mapping:   /etc/guacamole/user-mapping.xml
+auth-provider:  net.sourceforge.guacamole.net.basic.BasicFileAuthenticationProvider
+19. 다음으로 브라우저의 웹 인터페이스를 통해 Guacamole에 연결하고 로그인 할 수있는 사용자를 정의하는 user-mapping.xml 파일을 생성합니다.
+
+그렇게하기 전에 표시된대로 로그인 사용자에 대한 해시 된 암호를 생성해야합니다. 강력한 암호를 자신의 암호로 바꾸십시오.
+
+$ echo -n yourStrongPassword | openssl md5
+이와 같은 것을 얻어야합니다.
+
+(stdin)= efd7ff06c71f155a2f07fbb23d69609
+해시 된 비밀번호를 복사하여 user-mapping.xml 파일에 필요하므로 어딘가에 저장하십시오.
+
+20. 이제 user-mapping.xml 파일을 만듭니다.
+
+$ sudo vim /etc/guacamole/user-mapping.xml
+아래 내용을 붙여 넣으세요.
+
+<user-mapping>
+    <authorize 
+            username="tecmint"
+            password="efd7ff06c71f155a2f07fbb23d69609"
+            encoding="md5">
+
+        <connection name="Ubuntu20.04-Focal-Fossa>
+            <protocol>ssh</protocol>
+            <param name="hostname">173.82.187.242</param>
+            <param name="port">22</param>
+            <param name="username">root</param>
+        </connection>
+        <connection name="Windows Server">
+            <protocol>rdp</protocol>
+            <param name="hostname">173.82.187.22</param>
+            <param name="port">3389</param>
+        </connection>
+    </authorize>
+</user-mapping>
+온라인 상태 인 2 개의 원격 시스템에 연결할 수 있도록 두 개의 연결 프로필을 정의했습니다.
+
+Ubuntu 20.04 Server – IP: 173.82.187.242 via SSH protocol
+Windows Server – IP: 173.82.187.22 via RDP protocol
+21. 변경 사항을 적용하려면 Tomcat 서버와 Guacamole을 다시 시작합니다.
+
+$ sudo systemctl restart tomcat9
+$ sudo systemctl restart guacd
+지금까지 Guacamole 서버와 클라이언트가 구성되었습니다. "이제 브라우저를 사용하여 Guacamole 웹 UI에 액세스 해 보겠습니다.
+
+22. Guacamole 웹 UI에 액세스하려면 브라우저를 열고 다음과 같이 서버 주소를 검색합니다.
+
+http://server-ip:8080/guacamole
+
+23. user-mapping.xml 파일에서 지정한 자격 증명을 사용하여 로그인합니다. 로그인하면 모든 연결 섹션 아래의 버튼에 나열된 파일에서 정의한 서버 연결을 찾을 수 있습니다.
+24. Ubuntu 20.04 LTS 서버에 액세스하려면 연결을 클릭하면 원격 Ubuntu 서버에 대한 SSH 연결이 시작됩니다. 암호를 입력하라는 메시지가 표시되고 암호를 입력하고 ENTER를 누르면 그림과 같이 원격 시스템에 로그인됩니다.
+-------------------------------
