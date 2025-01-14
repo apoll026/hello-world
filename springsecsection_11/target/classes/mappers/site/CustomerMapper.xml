@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.eazybytes.mapper.CustomerMapper">
+    <select id="selectUser"  parameterType="String" resultType="com.eazybytes.model.jpa.Customer">
+        <![CDATA[
+	 	SELECT USER_ID AS id
+		       , USER_NM AS name
+		       , EMAIL AS email
+		       , PASSWORD_SHA512 AS password
+		       , CORP_CODE AS roles
+		  FROM PUB.GSC_USER
+		 WHERE USER_ID = #{username}
+	]]>
+    </select>
+</mapper>

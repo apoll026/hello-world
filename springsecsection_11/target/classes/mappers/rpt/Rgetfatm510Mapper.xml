@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.eazybytes.mapper.pkg.pkgreport.Rgetfatm510Mapper">
+    <!-- 채권채무관리계정 PROC_GET_FATM510 -->
+    <resultMap id="test" type="java.util.Map"/>
+    <select id="callRgetfatm510" statementType="CALLABLE" parameterType="com.eazybytes.model.mybatis.rpt.Cgetfatm510">
+        <![CDATA[
+            {call PKG_REPORT.PROC_GET_FATM510(#{i_acct_grp, mode=IN, jdbcType=VARCHAR},
+                #{i_gubun, mode=IN, jdbcType=VARCHAR},
+                #{o_rc, mode=OUT, jdbcType=CURSOR, javaType=java.sql.ResultSet, resultMap=test})
+            }
+	    ]]>
+    </select>
+    <!-- 채권채무관리계정 SELECT  -->
+    <select id="selectRgetfatm510" parameterType="com.eazybytes.model.mybatis.rpt.Cgetfatm510" resultType="com.eazybytes.model.mybatis.rpt.Rgetfatm510">
+        <![CDATA[
+            SELECT
+                  M510.gubn AS gubun,
+                  M510.acct_code AS acct_code,
+                  M510.code_expl AS code_expl,
+                  M510.use_yn AS use_yn,
+                  X200.acct_name AS acct_name,
+                  DECODE(M510.gubn, '1', '채권',
+                                    '2', '채무') AS gubn_name
+                FROM
+                  FATM510 M510, FATX200 X200
+                WHERE
+                  M510.acct_code = X200.acct_code   AND
+                  X200.acct_grp = #{i_acct_grp}       AND
+                  M510.Gubn = #{i_gubun}
+                ORDER BY
+                  M510.acct_code
+	    ]]>
+    </select>
+</mapper>
