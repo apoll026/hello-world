@@ -1,0 +1,620 @@
+CREATE OR REPLACE PROCEDURE PROC_MAKE_FATP100( P_MSG OUT VARCHAR2)
+
+IS
+        USER_ERR EXCEPTION;
+        v_emp_sttu varchar2(01);
+        v_fatp100_rec    FATP100%ROWTYPE;
+        v_dvsn_code varchar2(02);
+        v_dept_code varchar2(06);
+        v_card_empno varchar2(05);
+        v_load_date varchar2(08);
+        v_plus_date varchar2(08);
+        v_can_orgn_num varchar2(32);
+        v_due_date  varchar2(08);
+        v_curc_code varchar2(04);
+        v_cmpn_be_yn varchar2(01);
+        p_flag      varchar2(01);
+        v_ext       varchar2(01);
+        
+        p_err_code   VARCHAR2(100);   -- TO-DO용 에러코드
+        t_msg        VARCHAR2(1000);   -- TO-DO용 에러메시지
+        p_todo_user  VARCHAR2(100);   -- TO-DO용 대상자 ID
+        p_card_seq   FATP100.card_seq%TYPE;   -- TO-DO용 card_seq
+        
+
+  CURSOR cur_rec(v_date varchar2) is
+      select CARD_CMPN card_cmpn, DATA_DATE load_date,
+             CARD_NUM  card_num, SEQ card_seq,
+             CARD_GUBN card_divs, RECP_DATE recp_date,
+             CARD_SLIP_NUM card_slip_num, USE_DATE use_date,
+             DECODE(RECO_DATE, 'X', '', RECO_DATE) RECO_DATE,
+             DECODE(RECO_TIME, 'X', '', RECO_TIME ) RECO_TIME,
+             DECODE(RECO_NUM, 'X', '', RECO_NUM) RECO_NUM,
+             DOME_DIVS dome_divs, JOIN_STOR_NUM join_stor_num,
+             replace(JOIN_STOR_NAME,'|','') join_stor_name, DECODE(CMPN_NUM,'X','', CMPN_NUM) cmpn_num,
+             JOIN_REPR join_repr, JOIN_ADDR1 join_addr1,
+             JOIN_ADDR2 join_addr2, JOIN_ZIP join_zip,
+             DECODE(JOIN_TEL,'X', '', JOIN_TEL) join_tel,
+             DECODE(JOIN_TYPE,'X', '', JOIN_TYPE) JOIN_COND ,
+             DECODE(JOIN_TYPE_CODE, '', JOIN_TYPE_CODE) join_type_code,
+             DECODE(JOIN_TYPE, '', JOIN_TYPE) join_type,
+             '' CMPN_BE_YN,
+             to_number(decode(sign_use_amt, '+','','-','-', '')||USE_AMT) use_amt,
+             to_number(decode(sign_serv_amt, '+','', '-','-', '')||SERV_AMT) serv_amt,
+             to_number(decode(sign_forn_amt, '+', '', '-', '-', '')||FORN_AMT) forn_amt,
+             DECODE(CURC_CODE,'X','', CURC_CODE) CURC_CODE,
+             EXHG_AMT exhg_amt, DECODE(CTRY_CODE, 'X', '', CTRY_CODE) CTRY_CODE,
+             DECODE(CTRY_NAME, 'X','', CTRY_NAME) CTRY_NAME,
+             SIGN_DATE sign_date, PLAN_DATE plan_date,
+             to_number(decode(sign_vat, '+','', '-', '-', '')||VAT) vat,
+             DECODE(PRE_RECP_DATE, 'X','', PRE_RECP_DATE) PRE_RECP_DATE,
+             DECODE(PRE_CARD_SLIP, 'X', '', PRE_CARD_SLIP) PRE_SLIP_NUM,
+             '' PRIV_YN, '' CAN_ORGN_NUM, '' CAN_PART_YN,
+             0 MAIL_CNT, '' DUE_DATE, '' PRCS_DIVS,
+             '' PROF_NUM, ''PROF_STAT, UPD_EMPNO,
+             UPD_DATE, UPD_ID,
+             DECODE(SIGN_USE_AMT , '-', 'Y', '' ) CAN_YN ,
+             '' CARD_EMPNO , '' act_yn, '' act_send_date,
+             ''  act_from_empno, '' act_to_empno, '' act_rmk, '' kc_divs, '' kc_priv_yn
+             ,'' work_yn,
+             '' insr_yn
+          FROM FATP101
+          WHERE DATA_DATE = v_date 
+            --and card_slip_num = '0072IM0022895' --수정
+            AND NVL(DATA_USE_YN,'N')= 'N';
+
+BEGIN
+
+
+    DBMS_OUTPUT.put_line('시작시간 : '||to_char(sysdate, 'yyyy.mm.dd.hh.mi.ss'));
+    ---기준일자
+    v_load_date := TO_CHAR(sysdate,'yyyymmdd');
+    --v_load_date := '20210916';
+
+      ---처리기한
+    v_plus_date := to_char(to_date(v_load_date, 'yyyymmdd') +3 , 'yyyymmdd');
+
+    ---
+    BEGIN
+       SELECT to_char(MIN(TO_DATE(YYYYMMDD,'yyyymmdd')), 'yyyymmdd')
+         INTO v_due_date
+         FROM FATQ830
+        WHERE TO_DATE(YYYYMMDD,'yyyymmdd')
+         BETWEEN to_date(v_plus_date, 'yyyymmdd') AND ADD_MONTHS(to_date(v_plus_date, 'yyyymmdd'),1)
+          AND HLDY_YN = 'N';
+    EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+        p_msg := '휴일 아닌 일자 SEL 에러(FATQ830)';
+        RAISE USER_ERR;
+
+     WHEN OTHERS THEN
+        dbms_output.put_line(to_char(sqlcode));
+        p_msg := ';FATQ830 SEL OTHER ERROR';
+        RAISE USER_ERR;
+    END;
+
+
+    BEGIN
+       SELECT 'X' INTO v_ext
+         FROM FATP101
+       WHERE DATA_DATE = v_load_date
+         AND NVL(DATA_USE_YN,'N')= 'N'
+         AND ROWNUM = 1;
+    EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+        p_msg := '자료가 없습니다.';
+        RAISE USER_ERR;
+
+     WHEN OTHERS THEN
+        dbms_output.put_line(to_char(sqlcode));
+        p_msg := ';에러입니다.;A';
+        RAISE USER_ERR;
+    END;
+
+   IF v_ext IS NOT NULL and v_ext = 'X' THEN
+       -- CURSOR FOR LOOP
+    OPEN cur_rec(v_load_date);
+    LOOP
+       -- fetch
+       FETCH cur_rec INTO v_fatp100_rec;
+       EXIT WHEN cur_rec%NOTFOUND;
+
+       IF ( v_fatp100_rec.ctry_code = 'TUR')
+          OR
+          (v_fatp100_rec.curc_code is not null
+           and length(v_fatp100_rec.curc_code) > 0
+          ) THEN
+
+         ---터키코드 변경..
+         IF v_fatp100_rec.ctry_code = 'TUR' THEN
+             v_fatp100_rec.curc_code := 'TRY';
+         END IF;
+         --멕시코변경
+         /*
+         IF v_fatp100_rec.ctry_code = 'MEX' OR v_fatp100_rec.ctry_code = 'MX' THEN
+             v_fatp100_rec.curc_code := 'MXP';
+         END IF;
+         */
+         --체코변경
+         IF v_fatp100_rec.ctry_code = 'CZE' or v_fatp100_rec.ctry_code = 'CZ' THEN
+             v_fatp100_rec.curc_code := 'CZK';
+         END IF;
+         /*
+         -- 알제리
+         IF v_fatp100_rec.ctry_code = 'DZA' OR  v_fatp100_rec.ctry_code = 'DZ' THEN
+             v_fatp100_rec.curc_code := 'ZDZ';
+         END IF;
+         */
+         --베네수엘라
+         IF v_fatp100_rec.ctry_code = 'VEN' OR v_fatp100_rec.ctry_code = 'VE' THEN
+             v_fatp100_rec.curc_code := 'VEB';
+         END IF;
+		 --루마니아
+		 IF v_fatp100_rec.ctry_code = 'RO' OR v_fatp100_rec.ctry_code = 'ROM' THEN
+           --  v_fatp100_rec.curc_code := 'ROM';
+           v_fatp100_rec.curc_code := 'ROL';
+         END IF;
+		 /*--스리랑카
+		 IF v_fatp100_rec.ctry_code = 'LKA' THEN
+             v_fatp100_rec.curc_code := 'LRK';
+         END IF;
+     */
+		 --마다가스카르
+		 IF v_fatp100_rec.ctry_code = 'MDG' THEN
+		     v_fatp100_rec.curc_code := 'MGF';
+		 END IF;
+
+		 --모잠비크
+		/* IF v_fatp100_rec.ctry_code = 'MOZ' THEN
+--		    v_fatp100_rec.curc_code := 'MT';
+            v_fatp100_rec.curc_code := 'MZN';
+		 END IF;*/
+     --모잠비크
+     IF v_fatp100_rec.ctry_code IN ('MZ', 'MOZ') THEN
+		     v_fatp100_rec.curc_code := 'MZM';
+		 END IF;
+     --잠비아
+     IF v_fatp100_rec.ctry_code = 'ZMB' THEN
+		     v_fatp100_rec.curc_code := 'ZMW';
+		 END IF;
+     
+     ---아제르바이잔코드 변경..
+       IF v_fatp100_rec.ctry_code in( 'AZ', 'AZE') THEN
+           v_fatp100_rec.curc_code := 'AZM';
+       END IF;
+
+         v_curc_code := '';
+         BEGIN
+           SELECT NVL(CODE, '') INTO v_curc_code
+             FROM FATX800
+           WHERE CLASSIFY = '34'
+             AND code = v_fatp100_rec.curc_code;
+
+         EXCEPTION
+           WHEN NO_DATA_FOUND THEN
+              p_msg := v_fatp100_rec.curc_code||' '||';통화코드 SEL 에러(FATX800)';
+              RAISE USER_ERR;
+           WHEN OTHERS THEN
+              dbms_output.put_line(to_char(sqlcode));
+              p_msg := ';에러입니다.;';
+              RAISE USER_ERR;
+         END;
+
+      ELSE
+         v_curc_code := 'KRW';
+      END IF;
+
+      v_card_empno := '';
+         BEGIN
+           SELECT NVL(EMP_NO, '') INTO v_card_empno
+             FROM FATP200
+           WHERE CARD_NUM = v_fatp100_rec.card_num;
+
+         EXCEPTION
+           WHEN NO_DATA_FOUND THEN
+               v_card_empno := '';
+           WHEN OTHERS THEN
+              dbms_output.put_line(to_char(sqlcode));
+              p_msg := v_fatp100_rec.card_num||' ;카드 소유주 정보 조회에러입니다.;'||to_char(sqlcode);
+              RAISE USER_ERR;
+         END;
+
+      IF v_fatp100_rec.cmpn_num is not null and length(v_fatp100_rec.cmpn_num) = 10 THEN
+         v_ext := '';
+         v_cmpn_be_yn := '';
+
+         BEGIN
+           SELECT 'X' INTO v_ext
+             FROM FATX500
+           WHERE CMPN_NUM = v_fatp100_rec.cmpn_num;
+         EXCEPTION
+           WHEN NO_DATA_FOUND THEN
+               NULL;
+           WHEN OTHERS THEN
+              dbms_output.put_line(to_char(sqlcode));
+              p_msg := ';에러입니다.;';
+              RAISE USER_ERR;
+         END;
+
+
+        IF v_ext IS NULL OR length(v_ext) = 0 OR v_ext <> 'X' THEN
+
+          BEGIN
+             INSERT INTO FATX501
+             (CMPN_DIVS, CMPN_NUM, CMPN_NAME,
+       	      TAX_DIVS, BUSN_COND, KIND,
+    	        CORP_CODE, CMPN_NICK_NAME, REPS_CMPN_NUM,
+       	      ZIP_CODE, ADDR1, ADDR2,
+	            TEL, FAX, GRUP_DIVS,
+	            SHAR_YN, REPS_NAME, REPS_NUM,
+	            REPS_ZIP_CODE, REPS_ADDR1, REPS_ADDR2,
+	            FIX_YN, FIX_EMPNO, FIX_DATE,
+ 	            UPD_EMPNO, UPD_DATE, WEB_DATE,
+	            FRGN_DIVS, OVERSEA_YN, FAKE_JOIN_STRE_YN,
+	            CMPN_NAME2 )
+              VALUES
+              ('A', v_fatp100_rec.cmpn_num, substrb(v_fatp100_rec.join_stor_name,1,40),
+               '', substrb(v_fatp100_rec.join_cond, 1,20),
+                  substrb(v_fatp100_rec.join_type,1,20),
+               '', substrb(v_fatp100_rec.join_stor_name,1,30), '',
+               substrb(replace(v_fatp100_rec.join_zip,' ', ''),1,6),
+               v_fatp100_rec.join_addr1,
+               substrb(v_fatp100_rec.join_addr2,1,60),
+               v_fatp100_rec.join_tel, '', '',
+               '', v_fatp100_rec.join_repr, '',
+               '', '', '',
+               '', '', '',
+               'auto', sysdate, v_load_date, '', '', '', v_fatp100_rec.join_stor_name);
+
+           EXCEPTION
+              WHEN DUP_VAL_ON_INDEX THEN
+                  NULL;
+
+              WHEN OTHERS THEN
+                dbms_output.put_line(to_char(sqlcode));
+        p_msg := v_fatp100_rec.card_num||' '||v_fatp100_rec.load_date||' '||v_fatp100_rec.card_seq||'에러입니다. C'||to_char(sqlcode);
+                RAISE USER_ERR;
+
+           END;
+
+        ELSE
+            ---거래처 이미 등록되어 있음
+            v_cmpn_be_yn := 'Y';
+        END IF; /*IF v_ext IS NULL OR length(v_ext) = 0 OR v_ext <> 'X' THEN*/
+
+      END IF; /*IF v_fatp100_rec.cmpn_num is not null...*/
+       v_dept_code := '';
+
+       BEGIN
+         INSERT INTO FATP100
+         (CARD_CMPN, LOAD_DATE, CARD_NUM,
+          CARD_SEQ, CARD_DIVS, RECP_DATE,
+          CARD_SLIP_NUM, USE_DATE, RECO_DATE,
+          RECO_TIME, RECO_NUM, DOME_DIVS,
+          JOIN_STOR_NUM, JOIN_STOR_NAME, CMPN_NUM,
+          JOIN_REPR, JOIN_ADDR1, JOIN_ADDR2,
+          JOIN_ZIP, JOIN_TEL, JOIN_COND,
+          JOIN_TYPE_CODE, JOIN_TYPE, CMPN_BE_YN,
+          USE_AMT, SERV_AMT, FORN_AMT,
+          CURC_CODE, EXHG_AMT, CTRY_CODE,
+          CTRY_NAME, SIGN_DATE, PLAN_DATE,
+          VAT, PRE_RECP_DATE , PRE_SLIP_NUM,
+          PRIV_YN, CAN_ORGN_NUM, CAN_PART_YN,
+          MAIL_CNT, DUE_DATE, PRCS_DIVS,
+          PROF_NUM, PROF_STAT, UPD_EMPNO,
+          UPD_DATE, UPD_ID, CAN_YN, CARD_EMPNO)
+        VALUES
+         (v_fatp100_rec.card_cmpn, v_fatp100_rec.load_date,
+          v_fatp100_rec.card_num,
+          v_fatp100_rec.card_seq, v_fatp100_rec.card_divs,
+          v_fatp100_rec.recp_date,
+          v_fatp100_rec.card_slip_num, v_fatp100_rec.use_date,
+          v_fatp100_rec.reco_date,
+          v_fatp100_rec.reco_time, v_fatp100_rec.reco_num,
+          v_fatp100_rec.dome_divs,
+          v_fatp100_rec.join_stor_num, v_fatp100_rec.join_stor_name,
+          v_fatp100_rec.cmpn_num,
+          v_fatp100_rec.join_repr, v_fatp100_rec.join_addr1,
+          v_fatp100_rec.join_addr2,
+          v_fatp100_rec.join_zip, v_fatp100_rec.join_tel,
+          v_fatp100_rec.join_cond,
+          v_fatp100_rec.join_type_code, v_fatp100_rec.join_type ,
+          v_cmpn_be_yn,
+          v_fatp100_rec.use_amt, v_fatp100_rec.serv_amt,
+          v_fatp100_rec.forn_amt,
+          v_curc_code,  v_fatp100_rec.exhg_amt,
+          v_fatp100_rec.ctry_code,
+          v_fatp100_rec.ctry_name, v_fatp100_rec.sign_date,
+          v_fatp100_rec.plan_date,
+          v_fatp100_rec.vat, v_fatp100_rec.pre_recp_date ,
+          v_fatp100_rec.pre_slip_num,
+          '', '',
+          '',
+          0, v_due_date,
+          '', '',
+          '', 'auto',
+          sysdate,
+          'auto', v_fatp100_rec.can_yn , v_card_empno
+       );
+
+      EXCEPTION
+        WHEN DUP_VAL_ON_INDEX THEN
+        p_msg := v_fatp100_rec.card_num||' '||v_fatp100_rec.load_date||' '||v_fatp100_rec.card_seq||';중복자료입니다.;';
+          RAISE USER_ERR;
+
+        WHEN OTHERS THEN
+          dbms_output.put_line(to_char(sqlcode));
+          p_msg := ';에러입니다.B;';
+          RAISE USER_ERR;
+      END;
+      
+      -- EP4.0 TODO TO-DO 처리 2018.03.23
+      BEGIN 
+        select a.mail_id 
+          into p_todo_user
+          from faty400 a, fatp200 b 
+         where a.emp_no = b.emp_no
+           and b.card_num = v_fatp100_rec.card_num ;
+      EXCEPTION
+        WHEN no_data_found THEN 
+          p_todo_user := null;                 
+      END; 
+            
+      IF p_todo_user IS NOT NULL THEN
+        up_mw_todo_req('N',
+                       'UASI',
+                       'UASI',
+                       'CARD',
+                       v_fatp100_rec.load_date||'_'||v_fatp100_rec.card_num||'_'||v_fatp100_rec.card_seq,               
+                       p_todo_user,
+                       p_err_code,
+                       t_msg);
+                            
+        IF p_err_code <> 'S' THEN            
+          --  p_msg := p_appr_num||'To-Do 시스템 반영오류-결재'||t_msg|| to_char(sqlcode);
+          --  RAISE user_err;  일단 트랜젝션 에러를 일으키지 않고 Table 에 쌓아두는것으로 한다. 
+          INSERT INTO TODO_LOG 
+          (seq, busn_divs, todo_sys_cd, todo_type_cd, todo_req_no, todo_user, descr, upd_date)
+          VALUES 
+          (TODO_LOG_SEQ.NEXTVAL, 'UA', 'UASI', 'CARD', v_fatp100_rec.load_date||'_'||v_fatp100_rec.card_num||'_'||v_fatp100_rec.card_seq, p_todo_user, p_err_code ||'법인카드 사용건 TO-DO 생성 : '||t_msg, sysdate);
+        END IF;                     
+      END IF; 
+
+    END LOOP;
+
+    CLOSE cur_rec;
+
+    BEGIN
+       FOR row IN (select card_cmpn card_cmpn, load_date load_date,
+                          card_num card_num, card_seq card_seq,
+                          use_date use_date, -(use_amt) use_amt,
+                          nvl(pre_recp_date, '') pre_recp_date,
+                          nvl(pre_slip_num, '') pre_slip_num,
+                        card_num||card_cmpn||load_date||lpad(card_seq, 5, '0') can_orgn_num
+                     from fatp100
+                    where card_cmpn = '001'
+                      and load_date = v_load_date
+                      and can_yn = 'Y' ) LOOP
+
+             v_can_orgn_num := '';
+
+             BEGIN
+                SELECT card_num||card_cmpn||load_date||lpad(card_seq, 5, '0')
+                  INTO v_can_orgn_num
+                  FROM FATP100
+                WHERE  LOAD_DATE = row.load_date
+                AND    CARD_NUM  = row.card_num
+                AND    USE_AMT   = row.use_amt
+                AND    RECP_DATE  = row.pre_recp_date
+                AND    CARD_SLIP_NUM = row.pre_slip_num;
+             EXCEPTION
+               WHEN NO_DATA_FOUND THEN
+                  NULL;
+               WHEN OTHERS THEN
+                  dbms_output.put_line(to_char(sqlcode));
+                  p_msg := ';취소에 대한 승인 조회에러입니다.(FATP100);';
+              RAISE USER_ERR;
+         END;
+
+         IF v_can_orgn_num is NOT NULL AND length(v_can_orgn_num) > 0 THEN
+             ---원본 데이타 update
+             BEGIN
+                UPDATE FATP100
+                SET    CAN_ORGN_NUM = row.can_orgn_num
+                ,      UPD_ID = 'can'
+                ,      UPD_EMPNO = 'can'
+                ,      UPD_DATE = SYSDATE
+                WHERE  LOAD_DATE = row.load_date
+                AND    CARD_NUM  = row.card_num
+                AND    USE_AMT   = row.use_amt
+                AND    RECP_DATE  = row.pre_recp_date
+                AND    CARD_SLIP_NUM = row.pre_slip_num;
+
+             EXCEPTION
+               WHEN OTHERS THEN
+                   dbms_output.put_line(to_char(sqlcode));
+                   p_msg := ';자료 UPDATE ERROR(FATP101)';
+                    RAISE USER_ERR;
+             END;
+             
+             -- EP4.0 TODO TO-DO 처리 2018.03.23
+             BEGIN 
+               select card_seq
+                 into p_card_seq
+                 from FATP100
+                WHERE LOAD_DATE = row.load_date
+                  AND CARD_NUM  = row.card_num
+                  AND USE_AMT   = row.use_amt
+                  AND RECP_DATE  = row.pre_recp_date
+                  AND CARD_SLIP_NUM = row.pre_slip_num
+                  AND CAN_ORGN_NUM = row.can_orgn_num
+                  AND UPD_DATE = SYSDATE;
+             EXCEPTION
+               WHEN no_data_found THEN 
+                 p_card_seq := null;                 
+             END; 
+             
+             BEGIN
+               select a.mail_id 
+                 into p_todo_user
+                 from faty400 a, fatp200 b 
+                where a.emp_no = b.emp_no
+                  and b.card_num = row.card_num ;
+             EXCEPTION
+               WHEN no_data_found THEN 
+                 p_todo_user := null;                 
+             END; 
+              
+             IF p_card_seq IS NOT NULL AND p_todo_user IS NOT NULL THEN
+               up_mw_todo_req('N',
+                              'UASI',
+                              'UASI',
+                              'CARD',
+                              row.load_date||'_'||row.card_num||'_'||p_card_seq,               
+                              p_todo_user,
+                              p_err_code,
+                              t_msg);
+                            
+               IF p_err_code <> 'S' THEN            
+                 --  p_msg := p_appr_num||'To-Do 시스템 반영오류-결재'||t_msg|| to_char(sqlcode);
+                 --  RAISE user_err;  일단 트랜젝션 에러를 일으키지 않고 Table 에 쌓아두는것으로 한다. 
+                 INSERT INTO TODO_LOG 
+                 (seq, busn_divs, todo_sys_cd, todo_type_cd, todo_req_no, todo_user, descr, upd_date)
+                 VALUES 
+                 (TODO_LOG_SEQ.NEXTVAL, 'UA', 'UASI', 'CARD', row.load_date||'_'||row.card_num||'_'||p_card_seq, p_todo_user, p_err_code ||'법인카드 원본 데이타 update : '||t_msg, sysdate);
+               END IF;                     
+             END IF; 
+
+             ---취소데이타 update
+             BEGIN
+                UPDATE FATP100
+                SET    CAN_ORGN_NUM = v_can_orgn_num
+                ,      UPD_ID = 'can'
+                ,      UPD_EMPNO = 'can'
+                ,      UPD_DATE = SYSDATE
+                WHERE  CARD_CMPN = row.card_cmpn
+                AND    LOAD_DATE = row.load_date
+                AND    CARD_NUM  = row.card_num
+                AND    CARD_SEQ  = row.card_seq;
+
+             EXCEPTION
+               WHEN OTHERS THEN
+                   dbms_output.put_line(to_char(sqlcode));
+                   p_msg := ';자료 UPDATE ERROR(FATP101)';
+                    RAISE USER_ERR;
+             END;
+             
+             -- EP4.0 TODO TO-DO 처리 2018.03.23
+             BEGIN 
+               select a.mail_id 
+                 into p_todo_user
+                 from faty400 a, fatp200 b 
+                where a.emp_no = b.emp_no
+                  and b.card_num = row.card_num ;
+             EXCEPTION
+               WHEN no_data_found THEN 
+                 p_todo_user := null;                 
+             END; 
+             
+             IF p_todo_user IS NOT NULL THEN 
+               up_mw_todo_req('N',
+                              'UASI',
+                              'UASI',
+                              'CARD',
+                              row.load_date||'_'||row.card_num||'_'||row.card_seq,               
+                              p_todo_user,
+                              p_err_code,
+                              t_msg);
+                            
+               IF p_err_code <> 'S' THEN            
+                 --  p_msg := p_appr_num||'To-Do 시스템 반영오류-결재'||t_msg|| to_char(sqlcode);
+                 --  RAISE user_err;  일단 트랜젝션 에러를 일으키지 않고 Table 에 쌓아두는것으로 한다. 
+                 INSERT INTO TODO_LOG 
+                 (seq, busn_divs, todo_sys_cd, todo_type_cd, todo_req_no, todo_user, descr, upd_date)
+                 VALUES 
+                 (TODO_LOG_SEQ.NEXTVAL, 'UA', 'UASI', 'CARD', row.load_date||'_'||row.card_num||'_'||row.card_seq, p_todo_user, p_err_code ||'법인카드 취소 데이타 update : '||t_msg, sysdate);
+               END IF;                     
+             END IF; 
+
+          END IF;/*IF v_can_orgn_num is NOT NULL AND length(v_can_org... */
+
+        END LOOP;
+
+     EXCEPTION
+        WHEN OTHERS THEN
+            p_msg := p_msg||'카드취소 자동반영에러(FATP100)'||sqlcode||'-'||sqlerrm;
+            RAISE user_err;
+     END;
+
+    BEGIN
+      UPDATE FATP101
+         SET DATA_USE_YN = 'Y'
+       WHERE DATA_DATE = v_load_date
+         AND NVL(DATA_USE_YN,'N')= 'N';
+    EXCEPTION
+       WHEN OTHERS THEN
+          dbms_output.put_line(to_char(sqlcode));
+          p_msg := ';자료 UPDATE ERROR(FATP101)';
+          RAISE USER_ERR;
+    END;
+
+    IF sql%notfound THEN
+          p_msg := ';자료 UPDATE ZERO (FATP101)';
+          RAISE USER_ERR;
+    END IF;
+
+    ---2005년도 사용분은 처리한것처럼 할것..
+    BEGIN
+      UPDATE FATP100
+         SET PROF_NUM = 'XXXXXXXXXXXXXXXX',
+             PROf_STAT = '01'
+       WHERE CARD_CMPN = '001'
+         AND LOAD_DATE = v_load_date
+         AND USE_DATE <= '20051231';
+    EXCEPTION
+       WHEN OTHERS THEN
+          dbms_output.put_line(to_char(sqlcode));
+          p_msg := ';자료 UPDATE ERROR(FATP100)';
+          RAISE USER_ERR;
+    END;
+
+    ---외화금액이 있을 경우 환율을 계산해서 넣는다.
+    BEGIN
+      UPDATE FATP100
+         SET EXHG_AMT = round(use_amt/forn_amt, 4)
+       WHERE CARD_CMPN = '001'
+         AND LOAD_DATE = v_load_date
+         AND FORN_AMT <> 0;
+    EXCEPTION
+       WHEN OTHERS THEN
+          dbms_output.put_line(to_char(sqlcode));
+          p_msg := ';자료 환율UPDATE ERROR(FATP100)';
+          RAISE USER_ERR;
+    END;
+
+   END IF; /*IF v_ext IS NOT NULL and v_ext = 'X' THEN */
+
+    dbms_output.put_line('commit');
+    COMMIT;
+    DBMS_OUTPUT.put_line('종료시간 : '||to_char(sysdate, 'yyyy.mm.dd.hh.mi.ss'));
+
+EXCEPTION
+    WHEN USER_ERR THEN
+                 
+       IF LENGTH(p_msg) < 1 THEN
+        p_msg := '입력에러';
+
+       END IF;
+       dbms_output.put_line(p_msg);
+       dbms_output.put_line('rollback');
+       ROLLBACK;
+    WHEN OTHERS THEN
+         
+                 
+        IF LENGTH(p_msg) < 1 THEN
+            p_msg := '입력에러';
+        END IF;
+        dbms_output.put_line(p_msg);
+       dbms_output.put_line('rollback');
+       ROLLBACK;
+END;

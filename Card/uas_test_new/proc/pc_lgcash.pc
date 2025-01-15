@@ -1,0 +1,239 @@
+/****************************************************************************************
+   정기자금청구일자:  hv_dmnd_date                              
+   파일송신일자    :  hv_trns_date 
+   이체일자        :  hv_iche_date 
+   이체회수        :  hv_iche_count ==> 01 
+****************************************************************************************/
+
+
+
+#include <stdio.h>
+#include <math.h> 
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+
+EXEC SQL BEGIN DECLARE SECTION;
+   char    *uid = "ja/j7bhjd2@DBSTD99";	
+   static  varchar user_name[20 + 1];          /* USER NAME */
+   static  varchar password[20 + 1];           /* PASSWORD  */
+   
+   static  char hv_dmnd_date[8 + 1];  
+   static  char hv_trns_date[8 + 1];  
+   static  char hv_iche_date[8 + 1];  
+   static  char hv_iche_count[2 + 1];  
+   
+   static  char hv_lgcard_bank_code[2 + 1];  
+   static  char hv_lgcard_acnt_num[16 + 1];  
+   static  char hv_lgcard_dmnd_amt[13 + 1];  
+   static  char hv_lgcard_cmpn_num[13 + 1];  
+   static  char hv_lgcard_cmpn_name[20 + 1];  
+
+   static  char hv_lgcard_cnt[7 + 1];  
+   static  char hv_lgcard_sum[13 + 1];  
+   static  char hv_pass[13 + 1];  
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+   
+int main( int agrc, char **agrv )
+{
+   int ii;
+   int j;
+   int iii;
+   
+   FILE *fp1;
+   FILE *fp2;
+   char lgcard_buf[100 + 2];
+   int weight[13] = {17,19,23,29,31,37,41,43,47,49,51,53,61};  
+   int lgcard_first_flag = 1;
+   int seq = 0;
+   int i_pass;
+   int k = 0;
+   int sum_pass = 0;
+   double sum = 0;
+   int na;
+   int sum_na = 0;
+   int sum_last;
+   int s_len;
+   int aa = 0;
+   int jnx = 0;
+   char aa_s[5 + 1]; 
+   char s_last[11 + 1];
+   char s_pa[5 + 1];
+   char s_dd[3 + 1];
+   char s_mm[3 + 1];
+   char sss[2 + 1];
+   char cmpn_num[13 + 1];
+   char cmpn_name[20 + 1];
+   char ta[1 + 1];
+   char s_seq[6 + 1];
+   int seqq = 0;
+   int iche_dd;
+   int iche_mm;
+   int row;
+   int column;
+   int manage_sign; 
+   int pass_len; 
+/**   strcpy(,agrv[1]); **/
+   strcpy(hv_dmnd_date,agrv[1]);
+   strcpy(hv_trns_date,agrv[2]);
+   strcpy(hv_iche_date,agrv[3]);
+   strcpy(hv_iche_count,agrv[4]);
+
+   if (strlen(hv_dmnd_date) != 8 || strlen(hv_trns_date) != 8 || strlen(hv_iche_date) != 8 || strlen(hv_iche_count) != 2) 
+   {
+      printf("Parameter mismatch error \n");
+      exit(1);
+   }
+   EXEC SQL CONNECT :uid;
+
+/****************      
+   EXEC SQL SELECT TO_CHAR(SYSDATE,'yymmdd')
+              INTO :hv_sysdate
+              FROM DUAL;
+****************/      
+
+   /* 펌뱅킹 파일 Open */
+   if ((fp2=fopen("/app/fund/fb/reg_fund/reg_lgcash/lgcash.dat","w"))==NULL)
+   {
+      printf("Can't open error\n");
+      exit(1);
+   }
+
+   /* 펌뱅킹 송신 내역 DB select */
+   EXEC SQL DECLARE CURS CURSOR FOR
+      SELECT NVL( DECODE( SUBSTR(a.BANK_CODE,1, 2),
+                                       '10', '11',
+                                       '12', '11',
+                                       '13', '11',
+                                       '14', '11',
+                                       '15', '11',
+                                       '22', '20',
+                                       '24', '20',
+                                       '06', '04',
+                                       '19', '04',  
+  				       '17', '11',
+  				       '25', '81',
+                                       SUBSTR( a.BANK_CODE, 1, 2 ) ) , '' ),
+             RPAD(replace(a.acnt_num,'-',''),16,' '),
+	     LPAD(TO_CHAR(nvl(a.DMND_AMT,0)),13,'0'),
+             RPAD(replace(a.CMPN_NUM,'-'),13,' '),
+             RPAD(replace(substrb(b.CMPN_NAME,1,20),'-'),20,' ') 
+       FROM JATB101 a, fatx500 b
+       WHERE DMND_DATE = :hv_dmnd_date
+         and PAYM_DIVS = '01'
+         AND FNSH_FLAG = 'Y'
+         AND EXEC_DIVS = 'Y'
+         AND FLAG_01   = 'Y'
+         AND SLIP_NUM IS NOT NULL
+         AND A.CMPN_NUM = B.CMPN_NUM
+       ORDER BY A.CMPN_NUM, A.ACNT_NUM, a.dmnd_amt;
+
+   EXEC SQL OPEN CURS;
+   for(iii=0;;iii++){
+      EXEC SQL FETCH CURS INTO
+             :hv_lgcard_bank_code,
+             :hv_lgcard_acnt_num,
+             :hv_lgcard_dmnd_amt,
+             :hv_lgcard_cmpn_num,
+             :hv_lgcard_cmpn_name;
+   
+      if(SQLCODE != SQL_NO_DATA)
+      {
+         /*처음 자료이면 표제부 만든다*/
+         if (lgcard_first_flag == 1)  
+         {
+           strncpy(lgcard_buf,"H",1);
+           strncat(lgcard_buf,hv_trns_date,8);
+           strncat(lgcard_buf,"LGC       ",10);
+           for(jnx = 0; jnx < 81; jnx++)
+               strncat(lgcard_buf," ",1);
+           lgcard_buf[100] = '\n';   
+           lgcard_buf[101] = '\0';   
+           printf("%s\n",lgcard_buf); 
+           fputs(lgcard_buf,fp2);
+           lgcard_first_flag = 0;
+           lgcard_buf[0] = '\0';
+         }
+
+         strncpy(cmpn_num,hv_lgcard_cmpn_num,13);
+         strncpy(cmpn_name,hv_lgcard_cmpn_name,20);
+   
+         seqq = seqq + 1;
+         sprintf(s_seq,"%06d",seqq);
+
+         /*DATA부를 만든다.*/
+         strcpy(lgcard_buf,"D");
+         strncat(lgcard_buf,hv_lgcard_bank_code,2); 
+         strncat(lgcard_buf,hv_lgcard_acnt_num,16); 
+         strncat(lgcard_buf,hv_lgcard_dmnd_amt,13); 
+         strncat(lgcard_buf,hv_iche_date,8);
+         strncat(lgcard_buf,"    ",4);
+         strncat(lgcard_buf,cmpn_num,13); 
+         strncat(lgcard_buf,cmpn_name,20); 
+         strncat(lgcard_buf,hv_dmnd_date,8);
+	 
+         strncat(lgcard_buf,s_seq,6);
+         for(jnx = 0; jnx < 9; jnx++)
+         strncat(lgcard_buf," ",1);
+         lgcard_buf[100] = '\n';   
+         lgcard_buf[101] = '\0';   
+         printf("%s\n",lgcard_buf);
+         fputs(lgcard_buf,fp2);
+         lgcard_buf[0] = '\0';
+     }
+     else
+     {
+        EXEC SQL CLOSE CURS; 
+        break;
+     }
+   }  
+
+   /*3.맨밑*/  
+   EXEC SQL SELECT lpad(to_char(count(*)),7,'0'),
+                   lpad(to_char(sum(nvl(dmnd_amt,0))),13,'0')
+              INTO :hv_lgcard_cnt,:hv_lgcard_sum
+              FROM JATB101
+             WHERE DMND_DATE = :hv_dmnd_date
+               AND PAYM_DIVS = '01'
+               AND BANK_CODE IS NOT NULL
+               AND ACNT_NUM IS NOT NULL
+               AND FNSH_FLAG = 'Y'
+               AND EXEC_DIVS = 'Y'
+               AND FLAG_01   = 'Y'
+               AND SLIP_NUM IS NOT NULL;
+
+   strcpy(lgcard_buf,"E");
+   strncat(lgcard_buf,hv_lgcard_cnt,7);
+   strncat(lgcard_buf,hv_lgcard_sum,13);
+   for(jnx = 0; jnx < 7; jnx++)
+   strncat(lgcard_buf," ",1);
+   for(jnx = 0; jnx < 13; jnx++)
+   strncat(lgcard_buf," ",1);
+   for(jnx = 0; jnx < 7; jnx++)
+   strncat(lgcard_buf," ",1);
+   for(jnx = 0; jnx < 13; jnx++)
+   strncat(lgcard_buf," ",1);
+
+/*   strncat(lgcard_buf,hv_iche_count,2); */
+
+   for(jnx = 0; jnx < 39; jnx++)
+   strncat(lgcard_buf," ",1);
+
+   lgcard_buf[100] = '\n';   
+   lgcard_buf[101] = '\0';   
+   printf("%s\n",lgcard_buf);
+   fputs(lgcard_buf,fp2); 
+  
+   printf("LG CARD F/B생성,...\n");
+   /*******************************************************************/
+   /*종료부                                                           */
+   /*******************************************************************/ 
+   close(fp2);
+   /*종료*/ 
+   return SUCCESS;
+}

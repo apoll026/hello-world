@@ -1,0 +1,1060 @@
+/**********************************************************/
+/* 화  일  명 : PC_b101_load                              */
+/* 최종수정일 :                                           */
+/**********************************************************/
+/*내역        : 자료를 B101테이블에 INSERT             */
+/* 사용 TABLE :                                           */
+/* 사용MODULE :                                           */
+/* PARAMETER  : agrv[1] : IBM SAM FILE                    */
+/**********************************************************/
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
+char *getenv();
+
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char    *uid = "ja/j7bhjd2@DBSTD99";	
+    static   varchar user_name[20 + 1];          /* USER NAME */
+    static   varchar password[20 + 1];           /* PASSWORD  */
+    static   char hv_dmnd_date[8 + 1];        /*청구일자*/
+    static   char hv_befr_date[8 + 1];        /*이전달1일*/
+    static   char hv_dmnd_date_t[8 + 1];        /*청구일자*/
+    static   char hv_dmnd_item[4 + 1];        /*청구항목*/
+    static   char hv_cmpn_divs[2];        /*사업자번호*/
+    static   char hv_cmpn_num[10 + 1];        /*사업자번호*/
+    static   varchar hv_cmpn_num_2140[13 + 1];        /*경상비사업자번호*/
+    static   char hv_dept_code[6 + 1];        /*현장코드*/
+    static   char hv_paym_divs[2 + 1];        /*지불종류*/
+    static   char hv_paym_divs_key[2 + 1];    /*지불종류*/
+    static   char hv_acct_code[7];        /*계정과목*/
+    static   char hv_assi_code[6 + 1];        /*보조과목*/
+    static   char hv_note_code[4 + 1];        /*적요코드*/
+    static   varchar hv_note[40 + 1];            /*적요명*/
+    static   char hv_dmnd_amt[15 + 1];        /*청구금액*/
+    static   char hv_dmnd_amt1[13 + 1];        /*청구금액*/
+    static   char hv_issu_date[8 + 1];        /*발행일*/
+    static   char hv_comm_slip_num[24 + 1];   /*경상비전표번호*/
+    static   char hv_not_exec_reas[2 + 1];    /*미집행사유*/
+    static   char hv_exec_divs[1 + 1];
+    static   varchar hv_source[5];           /*출처구분*/
+    static   int     hv_seq;                 /*일련번호*/
+    static   int     hv_sub_seq;                 /*일련번호*/
+    static   int     ccc;
+    static   int     hv_work_cnt;
+    static   double  tmp_dmnd_amt;
+    static   char  tmp_cmpn_num[10 + 1]; 
+    static   varchar  hv_mang_num[12]; 
+    static   char hv_sys_date[15 + 1];        /*현재시각*/
+    static   double tmp_sum;
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+FILE *fp;
+int main( int agrc, char **agrv )
+{
+   int a;	
+   char buffer[400 + 1];
+   int i = 1;
+   int cnt = 1;
+   int drft = 1;
+   int etc = 1;
+
+   int iii = 1;
+   int ii;
+   double amt = 0;
+
+   EXEC SQL CONNECT :uid;
+
+   /*경상비*/
+   if ( strcmp( agrv[1],"jatb2140.dat" ) == 0 )
+   {	
+       /*아래는 예전방식 날짜를 넘기도록 바꿈.(전달의 마지막날)*/
+      /*************
+       EXEC SQL
+            SELECT TO_CHAR( LAST_DAY( ADD_MONTHS( SYSDATE, -1 ) ), 'YYYYMMDD' )
+            INTO   :hv_dmnd_date
+            FROM   DUAL;
+       *************/
+
+
+      if ( agrc != 3)
+      {
+      printf("parameter사용이 잘못되었습니다.경상비는 뒤에 날짜(전달의 마지막날)가 와야 합니다\n" );
+          return 9;
+      }
+
+      if ( strlen( agrv[2] ) != 8 )
+      {
+          printf("parameter사용이 잘못되었습니다,yyyymmdd \n" );
+          return 9;
+      }
+
+
+       strcpy(hv_dmnd_date,agrv[2]);
+       puts(hv_dmnd_date);
+       strcpy( hv_dmnd_item, "2140" );
+
+       /*이전달 1일날짜를 가져옴*/
+       EXEC SQL
+            select to_char(to_date(substr(:hv_dmnd_date, 1,6),'yyyymm') -1, 'yyyymm')||'01'
+            INTO   :hv_befr_date
+            FROM   DUAL;
+
+       hv_work_cnt = 0;
+       EXEC SQL
+            SELECT count(*)
+            INTO   :hv_work_cnt
+            FROM   JATB101
+            WHERE  DMND_DATE = :hv_dmnd_date
+            AND    DMND_ITEM = :hv_dmnd_item
+            AND    EXEC_DIVS IS NOT NULL;
+
+       if ( hv_work_cnt > 0 ) 
+       {
+           printf("이미 사용자가 작업중입니다.작업취소!\n" );
+           return 9;
+       }
+       else
+       { 
+           EXEC SQL
+                DELETE
+                FROM   JATB101
+                WHERE  DMND_DATE = :hv_dmnd_date
+                AND    DMND_ITEM = :hv_dmnd_item;
+
+           EXEC SQL
+                DELETE
+                FROM   JATB101_BEF
+                WHERE  DMND_DATE = :hv_dmnd_date
+                AND    DMND_ITEM = :hv_dmnd_item;
+        }
+        puts(hv_dmnd_date);
+
+       /* 본사정기자금 select */
+       /* 지난달에 가져오지 않은 정기자금신청 금액도 같이 불러온다 */
+       EXEC SQL DECLARE CURS0 CURSOR FOR
+            SELECT RTRIM( A.CMPN_NUM ),
+                   A.COST_DEPT,      
+                   DECODE( A.RCPT_METH ,'01', '01',
+                                        '03', '01',
+                                        '05', '02', 
+                                        '06', '01', '02'
+                         ),
+                   A.ACCT_CODE,         
+                   DECODE( SIGN( A.AMT -( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0))),
+                            1, DECODE( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0),
+                                       0, A.AMT,
+                                       NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0)
+                                     ),
+                            A.AMT ),
+               /**    A.AMT,   **/
+                   NVL(A.NOTE_CODE,' '),
+                   A.NOTE1,             A.ISSU_DATE,
+                   A.FK_SLIP_DATE || RPAD( FK_SLIP_DEPT, 6, ' ' ) || FK_SLIP_CLSS || FK_SLIP_MAIN || LPAD( SLIP_SUB, 4, '0' ),
+                   DECODE( C.CMPN_DIVS, '1', 'LGC', '2', 'LGC', 'LGC' ),
+                   A.CMPN_DIVS,
+                   A.MANG_NUM
+            FROM   FATA210 A, 
+                   FATX010 B,
+                   FATX010 C,
+                   FATA500 D
+            WHERE  A.FK_SLIP_DATE >= SUBSTR( :hv_befr_date, 1, 6 ) || '01' 
+            AND    A.FK_SLIP_DATE <= SUBSTR( :hv_dmnd_date, 1, 6 ) || '31'
+            AND    A.ACCT_CODE IN ( '200001', '201801', '201803', '200005' )
+            AND    A.DBCR_DIVS = '2'
+            AND    A.RCPT_TYPE = '02'
+            AND    A.FK_SLIP_DEPT = B.DEPT_CODE
+            AND    A.COST_DEPT = C.DEPT_CODE
+       /***     AND    A.CMPN_DIVS <> 'B'  ***/
+            AND    B.SITE_CD = '1'
+            AND    A.ACCT_CODE = D.ACCT_CODE(+)
+            AND    A.CMPN_NUM = D.CMPN_NUM(+)
+            AND    A.COST_DEPT = D.DEPT_CODE(+)
+            AND    A.MANG_NUM = D.MANG_NUM(+)
+            AND    SIGN(A.AMT-( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0))) <= 0
+            AND    ( A.FK_SLIP_DATE || RPAD( FK_SLIP_DEPT, 6, ' ' ) || FK_SLIP_CLSS || 
+                    FK_SLIP_MAIN || LPAD( SLIP_SUB, 4, '0' ), a.acct_code, 
+                    a.cost_dept, a.cmpn_num,  a.mang_num,
+                    DECODE( SIGN( A.AMT -( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0))),
+                            1, DECODE( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0),0, A.AMT,
+                                       NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0)),
+                            A.AMT ))
+                     NOT IN ( select f.COMM_SLIP_NUM, f.acct_code, f.dept_code, 
+                                     f.cmpn_num, f.mang_num, f.dmnd_amT
+                              from jatb101_bef f
+                             where SUBSTR(f.dmnd_date, 1,6) =  SUBSTR( :hv_befr_date, 1, 6 ) ) 
+            UNION
+             /* 현장경상비청구 */
+            SELECT RTRIM( A.CMPN_NUM ), 
+                   A.COST_DEPT,   
+                   DECODE(A.RCPT_TYPE, '01', '03',
+                                       '02', '01',
+                                       '03', '02', '02'
+                         ),
+                   A.ACCT_CODE, 
+                   DECODE( SIGN( A.AMT -( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0))),
+                            1, DECODE( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0),
+                                       0, A.AMT,
+                                       NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0)
+                                     ),
+                            A.AMT ),
+           /****        A.AMT,     ***/
+                   NVL(A.NOTE_CODE,' '),
+                   A.NOTE1,             A.ISSU_DATE,
+                   A.FK_SLIP_DATE || RPAD( FK_SLIP_DEPT, 6, ' ' ) || FK_SLIP_CLSS || FK_SLIP_MAIN || LPAD( SLIP_SUB, 4, '0' ),
+                   DECODE( C.CMPN_DIVS, '1', 'LGC', '2', 'LGC', 'LGC' ),
+                   A.CMPN_DIVS,
+                   A.MANG_NUM
+            FROM   FATA210 A, 
+                   FATX010 B,
+                   FATX010 C,
+                   FATA500 D
+            WHERE  A.FK_SLIP_DATE >= SUBSTR( :hv_befr_date, 1, 6 ) || '01' 
+            AND    A.FK_SLIP_DATE <= SUBSTR( :hv_dmnd_date, 1, 6 ) || '31'
+            AND    A.ACCT_CODE IN ( '200001', '201801', '201803', '200005' )
+            AND    A.DBCR_DIVS = '2'
+            AND    A.RCPT_TYPE IN ( '01', '02', '03' )
+            AND    A.FK_SLIP_DEPT = B.DEPT_CODE
+            AND    A.COST_DEPT = C.DEPT_CODE
+    /***        AND    A.CMPN_DIVS <> 'B'  ***/
+            AND    B.SITE_CD in ( '2', '3')
+            AND    A.FK_SLIP_CLSS <> '11'
+            AND    A.ACCT_CODE = D.ACCT_CODE(+)
+            AND    A.CMPN_NUM = D.CMPN_NUM(+)
+            AND    A.COST_DEPT = D.DEPT_CODE(+)
+            AND    A.MANG_NUM = D.MANG_NUM(+)
+            AND    SIGN(A.AMT-( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0))) <= 0
+            AND    ( A.FK_SLIP_DATE || RPAD( FK_SLIP_DEPT, 6, ' ' ) || FK_SLIP_CLSS || 
+                    FK_SLIP_MAIN || LPAD( SLIP_SUB, 4, '0' ), a.acct_code, 
+                    a.cost_dept, a.cmpn_num,  a.mang_num,
+                    DECODE( SIGN( A.AMT -( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0))),
+                            1, DECODE( NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0),0, A.AMT,
+                                       NVL(D.ISSU_AMT,0)-NVL(D.FNSH_AMT,0)),
+                            A.AMT ))
+                     NOT IN ( select f.COMM_SLIP_NUM, f.acct_code, f.dept_code, 
+                                     f.cmpn_num, f.mang_num, f.dmnd_amT
+                              from jatb101_bef f
+                             where SUBSTR(f.dmnd_date, 1,6) =  SUBSTR( :hv_befr_date, 1, 6 ) ) 
+            ORDER BY 1;
+
+       EXEC SQL OPEN CURS0;
+
+       for (ii=0;;ii++)
+       {
+           VCHINIT(hv_cmpn_num_2140);
+           EXEC SQL 
+           FETCH CURS0 INTO
+               :hv_cmpn_num_2140,  :hv_dept_code ,          :hv_paym_divs,
+               :hv_acct_code,      :hv_dmnd_amt,            :hv_note_code,
+               :hv_note,           :hv_issu_date,           :hv_comm_slip_num,
+               :hv_source,         :hv_cmpn_divs,           :hv_mang_num;
+
+           if(SQLCODE == SQL_NO_DATA)
+           {
+               EXEC SQL CLOSE CURS0;
+               break;
+           }
+           else if(SQLCODE != SQL_OK)
+           {
+               printf("경상비 작업 에러:%d\n",sqlca.sqlcode);
+               EXEC SQL CLOSE CURS0;
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+           }
+
+           hv_cmpn_num_2140.len = strlen( hv_cmpn_num_2140.arr ); 
+
+           printf("경상비 SAM FILE %d ROW REAING------>",cnt++); 
+           hv_seq = 1;
+              
+           /*어음이면 seq를 부여하지 않고 금액을 sum해서 update*/
+           if (strncmp(hv_paym_divs,"02",2) == 0 &&
+               strncmp(hv_cmpn_num_2140.arr,"1168119477",10) != 0) 
+           {
+               EXEC SQL 
+                 SELECT NVL(MAX(SUB_SEQ),0) + 1
+                 INTO   :hv_sub_seq
+                 FROM   JATB101_BEF
+                 WHERE DMND_DATE = :hv_dmnd_date
+                 AND DMND_ITEM = :hv_dmnd_item
+                 AND CMPN_NUM = RTRIM( :hv_cmpn_num_2140 )
+                 AND DEPT_CODE = RTRIM( :hv_dept_code )
+                 AND PAYM_DIVS = :hv_paym_divs
+                 AND MANG_NUM = :hv_mang_num;
+
+               /*b101  등록*/
+               EXEC SQL
+                 INSERT 
+                 INTO   JATB101_BEF
+                        ( DMND_DATE,
+                          DMND_ITEM,
+                          CMPN_NUM,
+                          DEPT_CODE,
+                          PAYM_DIVS,
+                          MANG_NUM,
+                          SEQ,
+                          SUB_SEQ,
+                          CMPN_DIVS,
+                          DMND_PAYM_DIVS,
+                          ACCT_CODE,
+                          ASSI_CODE,
+                          DMND_AMT,
+                          NOTE_CODE,
+                          NOTE,
+                          EXEC_DIVS,
+                          NOT_EXEC_REAS,
+                          ISSU_DATE,
+                          COMM_SLIP_NUM,
+                          SOURCE,
+                          UPD_EMPNO,
+                          UPD_DATE )
+                  VALUES (:hv_dmnd_date,
+                          :hv_dmnd_item,
+                          RTRIM( :hv_cmpn_num_2140 ),
+                          RTRIM( :hv_dept_code ),
+                          :hv_paym_divs,
+                          :hv_mang_num,
+                          1,
+                          :hv_sub_seq,
+                          :hv_cmpn_divs,
+                          :hv_paym_divs,
+                          :hv_acct_code,
+                          RTRIM( :hv_assi_code ),
+                          TO_NUMBER(:hv_dmnd_amt),
+                          :hv_note_code,
+                          :hv_note,
+                          NULL,
+                          :hv_not_exec_reas,
+                          :hv_issu_date,
+                          :hv_comm_slip_num,
+                          :hv_source,
+                          'FUND',
+                          sysdate );
+
+                if ( SQLCODE != SQL_OK)
+                {
+                     printf("JATB101_BEF.경상비INSERT ERROR : %d\n", sqlca.sqlcode);
+                     EXEC SQL ROLLBACK;
+                     return FAILURE;
+                }
+                printf("경상비 %d 건 INSERT...\n",drft++);
+           }
+           else 
+           {
+               /*LG CNS는 따로따로 */
+               if (strncmp(hv_cmpn_num_2140.arr,"1168119477",10) == 0 )
+               {
+                   EXEC SQL
+                      SELECT NVL(MAX(SEQ),0) + 1
+                      INTO   :hv_seq
+                      FROM   JATB101_BEF
+                     WHERE DMND_DATE = :hv_dmnd_date
+                       AND DMND_ITEM = :hv_dmnd_item
+                       AND CMPN_NUM = RTRIM( :hv_cmpn_num_2140 );
+               }
+               else
+               {
+                   EXEC SQL 
+                      SELECT NVL(MAX(SEQ),0) + 1
+                      INTO   :hv_seq
+                      FROM   JATB101_BEF
+                     WHERE DMND_DATE = :hv_dmnd_date
+                       AND DMND_ITEM = :hv_dmnd_item
+                       AND CMPN_NUM = RTRIM( :hv_cmpn_num_2140 )
+                       AND DEPT_CODE = RTRIM( :hv_dept_code )
+                       AND PAYM_DIVS = :hv_paym_divs
+                       AND MANG_NUM = :hv_mang_num;
+               }
+
+               /*b101  등록*/
+               EXEC SQL
+                 INSERT 
+                 INTO   JATB101_BEF
+                        ( DMND_DATE,
+                          DMND_ITEM,
+                          CMPN_NUM,
+                          DEPT_CODE,
+                          PAYM_DIVS,
+                          MANG_NUM,
+                          SEQ,
+                          SUB_SEQ,
+                          CMPN_DIVS,
+                          DMND_PAYM_DIVS,
+                          ACCT_CODE,
+                          ASSI_CODE,
+                          DMND_AMT,
+                          NOTE_CODE,
+                          NOTE,
+                          EXEC_DIVS,
+                          NOT_EXEC_REAS,
+                          ISSU_DATE,
+                          COMM_SLIP_NUM,
+                          SOURCE,
+                          UPD_EMPNO,
+                          UPD_DATE )
+                  VALUES (:hv_dmnd_date,
+                          :hv_dmnd_item,
+                          RTRIM( :hv_cmpn_num_2140 ),
+                          RTRIM( :hv_dept_code ),
+                          :hv_paym_divs,
+                          :hv_mang_num,
+                          :hv_seq,
+                          :hv_seq,
+                          :hv_cmpn_divs,
+                          :hv_paym_divs,
+                          :hv_acct_code,
+                          RTRIM( :hv_assi_code ),
+                          TO_NUMBER(:hv_dmnd_amt),
+                          :hv_note_code,
+                          SUBSTRB( :hv_note, 1, 38 ),
+                          NULL,
+                          :hv_not_exec_reas,
+                          :hv_issu_date,
+                          :hv_comm_slip_num,
+                          :hv_source ,
+                          'FUND',
+                          sysdate);
+
+            if ( SQLCODE != SQL_OK)
+            {
+                 printf("JATB101_BEF.경상비기타INSERT ERROR : %d\n", sqlca.sqlcode);
+                 EXEC SQL ROLLBACK;
+                 return FAILURE;
+            }
+            printf("%s경상비기타 %d 건 INSERT...\n",hv_mang_num.arr,drft++);
+        }
+      }
+    }
+    /*노무비면*/ 
+    else if (strcmp(agrv[1],"jatb2150.dat") == 0 )
+    {
+       EXEC SQL
+            SELECT TO_CHAR(SYSDATE, 'yyyymmdd hh24miss')
+            INTO   :hv_sys_date
+            FROM   DUAL;
+
+       printf("반영날짜||시간 %s \n",hv_sys_date); 
+
+      if ( agrc != 3)
+      {
+      printf("parameter사용이 잘못되었습니다.노무비는 뒤에 날짜(전달의 마지막날)가 와야 합니다\n" );
+          return 9;
+      }
+
+      if ( strlen( agrv[2] ) != 8 )
+      {
+          printf("parameter사용이 잘못되었습니다,yyyymmdd \n" );
+          return 9;
+      }
+
+       strcpy(hv_dmnd_date,agrv[2]);
+       strcpy( hv_dmnd_item, "2150" );/**노무비**/
+       puts(hv_dmnd_date);
+       puts(hv_dmnd_item);
+
+       hv_work_cnt = 0;
+       EXEC SQL
+            SELECT count(*)
+            INTO   :hv_work_cnt
+            FROM   JATB101
+            WHERE  DMND_DATE = :hv_dmnd_date
+            AND    DMND_ITEM = :hv_dmnd_item
+            AND    EXEC_DIVS IS NOT NULL;
+
+       if ( hv_work_cnt > 0 ) 
+       {
+           printf("이미 사용자가 작업중입니다.작업취소!\n" );
+           return 9;
+       }
+       else
+       { 
+           EXEC SQL
+                DELETE
+                FROM   JATB101
+                WHERE  DMND_DATE = :hv_dmnd_date
+                AND    DMND_ITEM = :hv_dmnd_item;
+
+           EXEC SQL
+                DELETE
+                FROM   JATB101_BEF
+                WHERE  DMND_DATE = :hv_dmnd_date
+                AND    DMND_ITEM = :hv_dmnd_item;
+        }
+
+       /* 노무비 select */
+       EXEC SQL DECLARE CURS5 CURSOR FOR
+          select ltrim(rtrim(substr(ta020.prof_no_mi,11,6))) 
+                 ,nvl(sum(ta010.chagam_amt), 0)+ nvl(sum(ta010.resident_tax), 0)
+                 ,ta020.mang_num
+            from nmta010 ta010
+                ,nmta020 ta020
+           where ta010.pay_yy   = SUBSTR(:hv_dmnd_date, 1, 4) 
+             and ta010.pay_mm   = SUBSTR(:hv_dmnd_date, 5, 2)
+             and ta010.prof_tp  = '0'
+             and ta010.pay_yy||ta010.pay_mm = ta020.pay_yy||ta020.pay_mm
+             and ta010.dept_cd  = ta020.dept_cd
+             and rtrim(substr(ta020.prof_no_mi,11,6)) not in ('A1627','A1619','H1200')  ---제외현장
+             and ta010.prof_num = ta020.prof_no_mi
+          group by ltrim(rtrim(substr(ta020.prof_no_mi,11,6))),ta020.mang_num;
+
+       EXEC SQL OPEN CURS5;
+
+       for (ii=0;;ii++)
+       {
+           EXEC SQL 
+           FETCH CURS5 INTO
+               :hv_dept_code,     
+               :hv_dmnd_amt, 
+               :hv_mang_num;
+
+           if(SQLCODE == SQL_NO_DATA)
+           {
+               EXEC SQL CLOSE CURS5;
+               break;
+           }
+           else if(SQLCODE != SQL_OK)
+           {
+               printf("노무비 작업 에러:%d\n",sqlca.sqlcode);
+               EXEC SQL CLOSE CURS5;
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+           }
+
+           printf("노무비 SAM FILE %d ROW REAING------>",cnt++); 
+           hv_seq = 1;
+              
+           EXEC SQL SELECT NVL(MAX(SEQ),0) + 1 
+                      INTO :hv_seq
+        	    FROM JATB101_BEF
+		   WHERE DMND_DATE = to_char(( last_day((to_date(:hv_dmnd_date,'yyyymmdd')))),'yyyymmdd')
+                          AND DMND_ITEM = '2150' 
+                          AND CMPN_NUM  = '0000000000' 
+                          AND DEPT_CODE = RTRIM( :hv_dept_code )
+                          AND PAYM_DIVS = '03'; 
+
+	      if(SQLCODE != SQL_OK)
+ 	      {
+	          printf("\nselect ERROR : %d\n",
+					sqlca.sqlcode);
+                  EXEC SQL ROLLBACK;
+		  return FAILURE;
+	      } 
+                       
+              /*b101_BEF  등록*/
+	      EXEC SQL INSERT INTO JATB101_BEF 
+	                 	 ( DMND_DATE,
+                                   DMND_ITEM,
+                                   CMPN_NUM,
+                                   DEPT_CODE,
+                                   PAYM_DIVS,
+                                   MANG_NUM,
+                                   SEQ,
+                                   SUB_SEQ,
+                                   DMND_PAYM_DIVS,
+                                   ACCT_CODE,
+                                   ASSI_CODE,
+                                   DMND_AMT,
+                                   SOURCE,
+                                   SEND_YN,
+                                   SEND_DATE,
+                                   SEND_DMND_DATE )
+                          VALUES (
+                               to_char(( last_day((to_date(:hv_dmnd_date,'yyyymmdd')))),'yyyymmdd'),
+                                   '2150',
+                                   '0000000000',
+                                   RTRIM( :hv_dept_code ),
+                                   '03',
+                                   RTRIM( :hv_mang_num ),
+                                   :hv_seq,
+                                   :hv_seq,
+                                   '03',
+                                   '104501',
+                                   RTRIM( :hv_dept_code ),
+                                   to_number(:hv_dmnd_amt),
+                                   'LGC',
+                                   'Y',
+                                   to_char(sysdate, 'yyyymmdd'),
+                                   RTRIM(:hv_dmnd_date) );
+            if ( SQLCODE != SQL_OK)
+            {
+                 printf("JATB101_BEF.노무비기타INSERT ERROR : %d\n", sqlca.sqlcode);
+                 EXEC SQL ROLLBACK;
+                 return FAILURE;
+            }
+
+              /*b101  등록*/
+	      EXEC SQL INSERT INTO JATB101 
+	                 	 ( DMND_DATE,
+                                   DMND_ITEM,
+                                   CMPN_NUM,
+                                   DEPT_CODE,
+                                   PAYM_DIVS,
+                                   MANG_NUM,
+                                   SEQ,
+                                   SUB_SEQ,
+                                   DMND_PAYM_DIVS,
+                                   ACCT_CODE,
+                                   ASSI_CODE,
+                                   DMND_AMT,
+                                   SOURCE )
+                          VALUES (
+                               to_char(( last_day((to_date(:hv_dmnd_date,'yyyymmdd')))),'yyyymmdd'),
+                                   '2150',
+                                   '0000000000',
+                                   RTRIM( :hv_dept_code ),
+                                   '03',
+                                   RTRIM( :hv_mang_num ),
+                                   :hv_seq,
+                                   :hv_seq,
+                                   '03',
+                                   '104501',
+                                   RTRIM( :hv_dept_code ),
+                                   to_number(:hv_dmnd_amt),
+                                   'LGC' );
+            if ( SQLCODE != SQL_OK)
+            {
+                 printf("JATB101.노무비기타INSERT ERROR : %d\n", sqlca.sqlcode);
+                 EXEC SQL ROLLBACK;
+                 return FAILURE;
+            }
+            printf("%s노무비기타 %d 건 INSERT...\n",hv_mang_num.arr,drft++);
+        }
+            printf("----END------");
+    }
+    /*현장자재비,본사자재비*/
+    else if ((strcmp(agrv[1],"jatb2110.dat") == 0 ) ||
+              (strcmp(agrv[1],"jatb2120.dat") == 0 ))
+    { 
+ 	 if((fp = fopen(agrv[1],"r")) != NULL)
+ 	 {
+ 	    while(fgets(buffer,256,fp) != NULL)
+  	    {
+ 	       printf("자재비 SAM FILE %d ROW READING----->",cnt++);
+               hv_seq = 0;
+  	       strncpy(hv_dmnd_date, &buffer[0], 8 );
+  	       strncpy(hv_dmnd_item, &buffer[8],  4);
+  	       strncpy(hv_cmpn_num, &buffer[12], 10);
+  	       strncpy(hv_dept_code, &buffer[22], 6);
+  	       strncpy(hv_paym_divs, &buffer[28], 2);
+                      printf("1\n");       
+  	       strncpy(hv_acct_code, &buffer[30], 4);
+  	       strncpy(hv_assi_code, &buffer[34], 6);
+  	       strncpy(hv_note.arr, &buffer[44],40 );
+ 	       strncpy(hv_dmnd_amt, &buffer[84], 15);
+	       strncpy(hv_not_exec_reas,&buffer[128],2);
+                      printf("2\n");       
+	
+	       /*어음이면 seq를 부여하지 않고 금액을 sum해서 update*/
+	       if ((strncmp(hv_paym_divs,"04",2) == 0 ))
+               {
+		  EXEC SQL SELECT DMND_DATE
+                             INTO :hv_dmnd_date_t
+                             FROM JATB101
+                            WHERE DMND_DATE = :hv_dmnd_date
+                              AND DMND_ITEM = :hv_dmnd_item
+                              AND CMPN_NUM  = :hv_cmpn_num
+                              AND DEPT_CODE = RTRIM( :hv_dept_code )
+                              AND PAYM_DIVS = :hv_paym_divs
+                              AND SEQ       = 1;
+                  /*존재하면  이전금액에다 sum한다*/
+                  if (SQLCODE != SQL_NO_DATA)
+                  {
+                      EXEC SQL UPDATE JATB101 
+                                  SET DMND_AMT = DMND_AMT + to_number(:hv_dmnd_amt)
+                                WHERE DMND_DATE = :hv_dmnd_date
+                                  AND DMND_ITEM = :hv_dmnd_item
+                                  AND CMPN_NUM = :hv_cmpn_num
+                                  AND DEPT_CODE = RTRIM( :hv_dept_code )
+                                  AND PAYM_DIVS = '04'
+                                  AND SEQ = 1;
+                               
+                      printf("3\n");       
+                      if(SQLCODE != SQL_OK)
+                      {
+                           printf("어음금액SUM  update ERROR   : %d\n",                                        sqlca.sqlcode);
+                           EXEC SQL ROLLBACK;
+                      printf("4\n");       
+                           return FAILURE;
+                      }  
+                      printf("어음금액 SUM\n");       
+                   }
+                   else
+                   { 
+                      if ((strncmp(hv_acct_code,"1300",4) == 0 ) ||
+                          (strncmp(hv_acct_code,"1303",4) == 0 ))
+                          strcpy(hv_assi_code,hv_dept_code);
+                      else
+                          strcpy(hv_assi_code,"");
+                      EXEC SQL SELECT NVL(MAX(SEQ),0) + 1
+                                 INTO :hv_seq
+                                 FROM JATB101
+                                WHERE DMND_DATE = :hv_dmnd_date
+                                  AND DMND_ITEM = :hv_dmnd_item
+                                  AND CMPN_NUM  = :hv_cmpn_num
+                                  AND DEPT_CODE = RTRIM( :hv_dept_code )
+                                  AND PAYM_DIVS = :hv_paym_divs;
+
+                      EXEC SQL INSERT INTO JATB101
+                                    ( DMND_DATE,
+                                      DMND_ITEM,
+                                      CMPN_NUM,
+                                      DEPT_CODE,
+                                      PAYM_DIVS,
+                                      SEQ,
+                                      DMND_PAYM_DIVS,
+                                      ACCT_CODE,
+                                      ASSI_CODE,
+                                      DMND_AMT ,
+                                      EXEC_DIVS, 
+                                      NOT_EXEC_REAS,
+                                      NOTE,
+                                      SOURCE )
+                             VALUES (:hv_dmnd_date,
+                                     :hv_dmnd_item,
+                                     :hv_cmpn_num,
+                                     RTRIM( :hv_dept_code ),
+                                     :hv_paym_divs,
+                                     :hv_seq,
+                                     :hv_paym_divs,
+                                     :hv_acct_code,
+                                     RTRIM( :hv_assi_code ),
+                                     TO_NUMBER(RTRIM(LTRIM(:hv_dmnd_amt))),
+                                     :hv_exec_divs,
+                                     :hv_not_exec_reas,
+                                     :hv_note,
+                                     'LGC' );
+                        
+                      if(SQLCODE != SQL_OK)
+                      {
+                          printf("어음 INSERT ERROR... : %d\n",
+                                sqlca.sqlcode);
+                          EXEC SQL ROLLBACK;
+                          return FAILURE;
+                      }
+		      printf("어음 %d 건 INSERT...\n",drft++);
+                   }
+                }
+                else
+                { 	
+                   /*청구일자,사업자번호,현장코드,지불종류*/
+ 	           /*가 같은항목있으면 seq+1 로 insert    */
+  	           EXEC SQL SELECT NVL(MAX(SEQ),0) + 1
+ 			      INTO :hv_seq
+  			      FROM JATB101
+    			     WHERE DMND_DATE = :hv_dmnd_date
+  			       AND DMND_ITEM = :hv_dmnd_item
+ 			       AND CMPN_NUM  = :hv_cmpn_num
+                               AND DEPT_CODE = RTRIM( :hv_dept_code )
+                               AND PAYM_DIVS = :hv_paym_divs;
+
+	            if ((strncmp(hv_acct_code,"1300",4) == 0 ) ||
+                        (strncmp(hv_acct_code,"1303",4) == 0 )) 
+                        strcpy(hv_assi_code,hv_dept_code);
+                    else    
+                        strcpy(hv_assi_code,"");
+
+                    /*현장자재비이고 현금일경우 금액이 200만원 미만이면*/
+                    /*전도금으로 변환 한다.                            */
+                    if ((strcmp(hv_dmnd_item,"2120")==0) &&
+                       (strcmp(hv_paym_divs,"01")==0) &&
+                       (strcmp(hv_dmnd_amt,"        2000001")==-1))
+                    {
+                        strcpy(hv_paym_divs_key,"03");
+                        strcpy(hv_paym_divs,"03");
+                    }  
+                    else
+                    {
+                        strcpy(hv_paym_divs_key,hv_paym_divs); 
+                    }     
+                    /*b101  등록*/
+                    EXEC SQL INSERT INTO JATB101
+                                       ( DMND_DATE,
+                                         DMND_ITEM,
+                                         CMPN_NUM,
+                                         DEPT_CODE,
+                                         PAYM_DIVS,
+ 				         SEQ,
+ 				         DMND_PAYM_DIVS,
+ 					 ACCT_CODE,
+ 					 ASSI_CODE,
+ 					 DMND_AMT ,
+                                         EXEC_DIVS,
+                                         NOT_EXEC_REAS,
+                                         NOTE,
+                                         SOURCE  )
+   				VALUES (:hv_dmnd_date,
+ 					:hv_dmnd_item,
+ 					:hv_cmpn_num,
+ 					RTRIM( :hv_dept_code ),
+ 					:hv_paym_divs_key,
+ 					:hv_seq,
+					:hv_paym_divs,
+                                        :hv_acct_code,
+                                        RTRIM( :hv_assi_code ),
+                                        TO_NUMBER(RTRIM(LTRIM(:hv_dmnd_amt))),
+                                        :hv_exec_divs,
+                                        :hv_not_exec_reas, 
+                                        :hv_note,
+                                        'LGC' );
+
+
+		    if(SQLCODE != SQL_OK)
+  		    {
+  			printf("기타항목 INSERT ERROR.. : %d\n",
+  				sqlca.sqlcode);
+  			EXEC SQL ROLLBACK;
+  			return FAILURE;
+  		    }
+		 printf("기타항목 %d 건 INSERT...\n",etc++);
+                 }
+                       
+
+ 	      }
+
+       	}
+   }
+   /*외주비*/
+   else if (strcmp(agrv[1],"jatb2130.dat") == 0 ) 
+   { 
+       if ( ( fp = fopen( agrv[1],"r" ) ) != NULL )
+       {
+ 	    while ( fgets( buffer,400,fp ) != NULL )
+  	    {
+                printf("외주비 SAM FILE %d ROW READING----->",cnt++);
+ 	        hv_seq = 0;
+                strncpy(hv_dmnd_date, &buffer[0],  8);
+  	        strncpy(hv_dmnd_item, &buffer[8],  4);
+  	        strncpy(hv_cmpn_num, &buffer[12], 10);
+  	        strncpy(hv_dept_code, &buffer[22], 6);
+  	        strncpy(hv_paym_divs, &buffer[28], 2);
+
+  	        strncpy(hv_acct_code, &buffer[30], 6);
+  	        strncpy(hv_assi_code, &buffer[36], 6);
+  	        strncpy(hv_note.arr, &buffer[44],40 );
+ 	        strncpy(hv_dmnd_amt, &buffer[86], 15);
+ 	        strncpy(hv_not_exec_reas, &buffer[101],2 );
+ 	        strncpy(hv_mang_num.arr, &buffer[103], 11 );
+                
+                EXEC SQL SELECT TO_NUMBER(:hv_dmnd_amt)
+                         INTO   :tmp_dmnd_amt
+                         FROM   DUAL;
+
+                if ( tmp_dmnd_amt < 0 )
+                    continue;
+
+                hv_mang_num.len = strlen(hv_mang_num.arr);
+                hv_note.len = strlen(hv_note.arr);
+                /*현금 ---> 전도금 */
+                if  (strncmp(hv_paym_divs,"03",2)==0) 
+                {
+                    strcpy(hv_paym_divs_key,"01");
+                    strcpy(hv_paym_divs,"01");
+                }
+                else
+                    strcpy(hv_paym_divs_key,hv_paym_divs);
+       
+                hv_seq = 1;
+
+                printf("%sn",hv_mang_num.arr);
+
+                if ((strncmp(hv_paym_divs,"02",2) == 0 ))
+                {
+                     EXEC SQL SELECT NVL(MAX(SEQ),0) + 1
+                                INTO :hv_seq
+                                FROM JATB101
+                               WHERE DMND_DATE = :hv_dmnd_date
+                                 AND DMND_ITEM = :hv_dmnd_item
+                                 AND CMPN_NUM  = :hv_cmpn_num
+                                 AND DEPT_CODE = RTRIM( :hv_dept_code )
+                                 AND PAYM_DIVS = :hv_paym_divs_key
+                                 AND MANG_NUM  = nvl(RTRIM( :hv_mang_num ),'0000');
+                     EXEC SQL INSERT INTO JATB101
+                                        ( DMND_DATE,
+                                          DMND_ITEM,
+                                          CMPN_NUM,
+                                          DEPT_CODE,
+                                          PAYM_DIVS,
+                                          MANG_NUM,
+                                          SEQ,
+                                          SUB_SEQ,
+                                          DMND_PAYM_DIVS,
+                                          ACCT_CODE,
+                                          ASSI_CODE,
+                                          DMND_AMT,
+                                          EXEC_DIVS,
+                                          NOT_EXEC_REAS,
+                                          NOTE,
+                                          upd_empno,
+                                          source )
+                                 VALUES (:hv_dmnd_date,
+                                         :hv_dmnd_item,
+                                         :hv_cmpn_num,
+                                         RTRIM( :hv_dept_code ),
+                                         :hv_paym_divs_key,
+                                         nvl(RTRIM( :hv_mang_num ),'0000'),
+                                         :hv_seq,
+                                         :hv_seq,
+                                         :hv_paym_divs,
+                                         '200002',
+                                       /**  :hv_acct_code, **/
+                                         RTRIM( :hv_assi_code ),
+                                         TO_NUMBER(:hv_dmnd_amt),
+                                         NULL,
+                                         :hv_not_exec_reas,
+                                         :hv_note ,
+                                         TO_CHAR( SYSDATE, 'MMDD' ),
+                                         'LGC' );
+                     if(SQLCODE != SQL_OK)
+                     {
+                          printf("\n어음  INSERT1 ERROR!!!! : %d\n", sqlca.sqlcode);
+                          EXEC SQL ROLLBACK;
+                          return FAILURE;
+                     }
+                     printf("어음 %d 건 INSERT...\n",drft++);
+                }
+                else
+                {
+                    EXEC SQL SELECT NVL(MAX(SEQ),0) + 1
+                         INTO :hv_seq
+                         FROM JATB101
+                         WHERE DMND_DATE = :hv_dmnd_date
+                         AND DMND_ITEM = :hv_dmnd_item
+                         AND CMPN_NUM  = :hv_cmpn_num
+                         AND DEPT_CODE = nvl(RTRIM( :hv_dept_code ),'0000')
+                         AND PAYM_DIVS = :hv_paym_divs_key;
+
+                    EXEC SQL INSERT
+                         INTO JATB101
+                             ( DMND_DATE,
+                               DMND_ITEM,
+                               CMPN_NUM,
+                               DEPT_CODE,
+                               PAYM_DIVS,
+                               SEQ,
+                               MANG_NUM,
+                               SUB_SEQ,
+                               DMND_PAYM_DIVS,
+                               ACCT_CODE,
+                               ASSI_CODE,
+                               DMND_AMT,
+                               EXEC_DIVS,
+                               NOT_EXEC_REAS,
+                               NOTE,
+                               SOURCE )
+                      VALUES (:hv_dmnd_date,
+                              :hv_dmnd_item,
+                              :hv_cmpn_num,
+                              RTRIM( :hv_dept_code ),
+                              :hv_paym_divs_key,
+                              :hv_seq,
+                              nvl(RTRIM( :hv_mang_num ),'0000'), 
+                              :hv_seq,
+                              :hv_paym_divs,
+                              '200002',
+                       /****       :hv_acct_code,      ****/
+                              RTRIM( :hv_assi_code ),
+                              TO_NUMBER(:hv_dmnd_amt),
+                              NULL,
+                              :hv_not_exec_reas,
+                              :hv_note,
+                              'LGC' );
+                    if ( SQLCODE != SQL_OK )
+                    {
+                         printf("\n기타항목 INSERT1 ERROR!!!!! : %d\n", sqlca.sqlcode);
+                         EXEC SQL ROLLBACK;
+                         return FAILURE;
+                    }
+                    printf("기타항목 %d 건 INSERT...\n",drft++);
+
+ 	        }
+            }
+
+          /*외주비 현금2+어음 합이 1000만원 이하면 현금 1으로 */
+/***********   2002년 6월 5일 곽동만 대리 요청번호 : 2002060502     
+    	EXEC SQL DECLARE CURS1 CURSOR FOR
+                  SELECT nvl(CMPN_NUM, 'x'),
+                         NVL(DECODE(MAX(DMND_PAYM_DIVS),'02',SUM(DMND_AMT)),0)
+                       + NVL(DECODE(MAX(DMND_PAYM_DIVS),'04',SUM(DMND_AMT)),0)
+                    FROM JATB101
+                   WHERE DMND_DATE = :hv_dmnd_date
+                     AND DMND_ITEM = '2130'
+                     and (dmnd_paym_divs = '02' or dmnd_paym_divs = '04')
+                     and SOURCE = 'LGC'
+                GROUP BY CMPN_NUM;
+
+         EXEC SQL OPEN CURS1;
+          
+         for(iii=0;;iii++)
+         {
+            EXEC SQL FETCH CURS1 INTO
+                     :tmp_cmpn_num,
+                     :tmp_sum;
+            if(SQLCODE == SQL_NO_DATA)
+            {
+               EXEC SQL CLOSE CURS1;
+               break;
+            }    
+            else if(SQLCODE != SQL_OK)
+            {
+                printf("외주비 현금1작업 에러:%d\n",sqlca.sqlcode);
+                EXEC SQL CLOSE CURS1;
+                EXEC SQL ROLLBACK WORK; 
+                return FAILURE;
+            }
+           
+            if ((tmp_sum < 10000000) &&
+               (tmp_sum > 0))
+            {
+               int hv_tmp_seq = 0;
+	       printf("%s\n",hv_dmnd_date);
+               printf("%s\n",tmp_cmpn_num);
+					
+               EXEC SQL SELECT NVL(MAX(SEQ),0) + 1
+                    INTO :hv_tmp_seq
+                    FROM JATB101
+                    WHERE DMND_DATE = :hv_dmnd_date
+                    AND DMND_ITEM = '2130'
+                    AND CMPN_NUM  = :tmp_cmpn_num
+                    AND PAYM_DIVS = '01';
+
+               EXEC SQL UPDATE JATB101 
+                           SET PAYM_DIVS = '01'
+                           ,   SEQ       = :hv_tmp_seq
+                           ,   SUB_SEQ   = :hv_tmp_seq
+                         WHERE DMND_DATE = :hv_dmnd_date
+                           AND DMND_ITEM = '2130'
+                           AND (PAYM_DIVS = '02' OR PAYM_DIVS = '04') 
+                           AND SOURCE = 'LGC'
+                           AND CMPN_NUM  = :tmp_cmpn_num;
+               if (SQLCODE != SQL_OK )
+               {
+                  printf("b101 update error:%d\n",sqlca.sqlcode);
+                  EXEC SQL ROLLBACK WORK;
+                  EXEC SQL CLOSE CURS1;
+                  return FAILURE;
+               }
+            } 
+         } 
+ 2002년 6월 5일 곽동만 대리 요청번호 : 2002060502     ***********/
+      }
+}
+/*             EXEC SQL UPDATE jatb101 SET EXEC_DIVS = 'N'
+                       WHERE DMND_DATE = :hv_dmnd_date 
+                         AND DMND_ITEM = :hv_dmnd_item
+                         AND NOT_EXEC_REAS = '00';              
+*/
+   EXEC SQL COMMIT;
+   return SUCCESS; 
+}
+

@@ -1,0 +1,1114 @@
+/*****************************************************************************/
+/*                                                                           */
+/*    Program ID: c_in_cmpn_fnsh.pc                                          */
+/*                                                                           */
+/*    Description: 해당월 지급어음/받을어음 만기 전표를 찾아 자금시스템 테이 */
+/*                 블(jatz700)에 insert하고 이를 detail테이블에서 비용부서별 */
+/*                 로 배부하여 jatz702에 insert하여 증빙생성,이체함.         */
+/*                   jatz702에는 gubun='1'인 것이 'H0000'으로 합산되어 있는  */
+/*                 금액, GUBUN='2'인 것이 귀속부서별 배부한 것임.            */
+/*                 (GUBUN='2'면서 UPD_EMPNO='**'인것은 배부 실패하여 'H0000' */
+/*                  으로 SETTING됨.)                                         */
+/*                                                                           */
+/*    Entry Points    : main()                                               */
+/*                                                                           */
+/*    Oracle Tables   : FATA210, FATA120, JATZ700, JATZ702,            */
+/*                                                                           */
+/*    Link Procedures :                                                      */
+/*                                                                           */
+/*    USAGE : pc_ins_z700 날짜[YYYYMM] 계정[102701 or 200601]                */
+/*                                                                           */
+/*    Special Logic   : None                                                 */
+/*                                                                           */
+/*****************************************************************************/
+/*   Modification Log                                                        */
+/*                                                                           */
+/*      DATE                 AUTHOR                  DESCRIPTION             */
+/*    --------            -------------        -------------------------     */
+/*   2000/02/18           Lee Sang-Kyung             Initial Release         */
+/*                                                                           */
+/*****************************************************************************/
+/*****************************************************************************/
+/*                                                                           */
+/*    Module name:     .c                                                    */
+/*                                                                           */
+/*    Program ID:                                                            */
+/*                                                                           */
+/*    Functions:                                                             */
+/*                                                                           */
+/*****************************************************************************/
+/* Header Files */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <string.h>
+char *getenv();
+
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+#define TRUE                ( 0 )
+#define FALSE               ( 1 )
+
+/*   Declare type declaration  */
+typedef int bool;
+
+/*   Declare Internal Function  */
+void sql_error();
+void Insert_Jatz702( int, char * );
+bool not_found_cost_dept( void );
+
+EXEC SQL BEGIN DECLARE SECTION;
+   static varchar user_name[20 + 1];          /* USER NAME */
+   static varchar password[20 + 1];           /* PASSWORD  */
+   static varchar hv_drft_num[11 + 1];         /* 어음번호  */
+   static varchar hv_param_acct_code[ 7 ];
+   static varchar hv_param_acct_code2[ 7 ];
+
+   static varchar hv_slip_date[ 9 ];
+   static varchar hv_slip_dept[ 7 ];
+   static varchar hv_slip_clss[ 3 ];
+   static varchar hv_slip_main[ 5 ];
+   static int     hv_slip_sub;
+   static varchar hv_acct_code[ 7 ];
+   static varchar hv_cmpn_num[ 14 ];
+   static varchar hv_cost_dept[ 7 ];
+   static varchar hv_mang_num[ 31 ];
+   static varchar hv_dbcr_divs[ 2 ];
+   static char hv_print_buffer[ 40 ];
+   static varchar hv_prof_num[ 5 ];
+   static varchar hv_err_msg[100];
+   static varchar hv_flag[100];
+   static int     hv_prof_sub;
+   static varchar hv_z702_note1[ 30 ];
+   static varchar hv_z702_cmpn_name[41];
+   static varchar hv_cmpn_divs[1+1];
+   static char hv_dvsn_code[ 3 ];
+   static varchar hv_dept_name[ 31 ];
+
+
+   static  varchar hv_fnsh_date[8 + 1];
+   static  varchar hv_issu_date[8 + 1];
+   static  double  hv_amt;
+           varchar slip_divs[1 + 1];
+           varchar slip_date[8 + 1];
+           varchar slip_unit[6 + 1];
+           varchar slip_clss[2 + 1];
+           int     slip_main_num; 
+           int     slip_sub_num; 
+           int     inx;
+           int     jnx;
+           int     knx;
+           int     cnx;
+   static  int     cnt;
+   static  varchar hv_date[6 + 1];
+   static  varchar hv_c2_dept_code[6 + 1];
+   static  varchar hv_c2_cmpn_num[13 + 1];
+   static  varchar hv_c3_dept_code[6 + 1];
+   static  double  hv_c2_amt;
+   static  double  hv_c3_amt;
+   static  char    hv_gubun[1 + 1];
+   static  varchar a[2 + 1];
+           double  t_amt;
+           int     cnt_1;
+   static  char    hv_z702_acct_code[ 7 ];
+   static  varchar hv_z702_dept_code[6 + 1];
+   static  varchar hv_z702_cmpn_num[13 + 1];
+   static  varchar hv_z702_issu_date[8 + 1];
+   static  varchar hv_z702_fnsh_date[8 + 1];
+   static  varchar hv_z702_drft_num[11 + 1];
+   static  double  hv_z702_amt;
+   static  char    hv_z702_dbit_cred_divs[1 + 1];
+   static  varchar hv_spare_jatz700[2 + 1];
+   static  varchar hv_spare_jatz702[2 + 1];
+
+   static  varchar hv_halin_drft_num[11 + 1];
+   static  char    hv_halin_acct_code[ 7 ];
+   static  char    hv_halin_dbit_cred_divs[1 + 1];
+   static  varchar hv_halin_note1[ 30 ];
+   static  varchar hv_halin_dept_code[6 + 1];
+   static  varchar hv_halin_issu_date[8 + 1];
+   static  varchar hv_halin_fnsh_date[8 + 1];
+   static  varchar hv_halin_cmpn_num[13 + 1];
+   static  varchar hv_halin_cmpn_name[41];
+   static  double  hv_halin_amt;
+
+
+           double  amt_103001;
+           double  amt_103002;
+           double  cnt_103001;
+           double  cnt_103002;
+
+           double  amt_200901;
+           double  cnt_200901;
+   char    *uid = "ja/j7bhjd2@DBSTD99";	
+
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE SQLCA;
+
+int main( int argc, char **argv )
+{
+   if ( argc != 3 || strcmp( argv[2], "102701" ) != 0 && strcmp( argv[2], "200601" ) != 0 )
+   {
+       printf( "ERROR: Invalid Parameter\n ( => Usage : pc_ins_z700 [SLIP_DATE(YYYYMM)] [ACCT_CODE(102701 or 200601)] )\n");
+       exit( EXIT_FAILURE );
+   }
+
+   VCHINIT(hv_date);
+   VCHINIT(hv_param_acct_code );
+   VCHINIT(hv_param_acct_code2 );
+   cnt = 0;
+   strcpy( hv_date.arr, argv[1] );
+   strcpy( hv_param_acct_code.arr, argv[2] );
+   hv_date.len = strlen( hv_date.arr );
+   hv_param_acct_code.len = strlen( hv_param_acct_code.arr );
+
+
+   if ( strncmp("102701", hv_param_acct_code.arr,6) == 0 )  /** 받을어음 **/
+   {
+       strcpy(hv_param_acct_code2.arr, "102702");  /** 공사미수금(전자) **/
+       hv_param_acct_code2.len = strlen(hv_param_acct_code2.arr);
+   }
+   else
+   {
+       strcpy(hv_param_acct_code2.arr, "noacnt");
+       hv_param_acct_code2.len = strlen(hv_param_acct_code2.arr);
+   }
+
+   EXEC SQL CONNECT :uid;
+  
+   EXEC SQL
+       DELETE 
+       FROM   JATZ700
+       WHERE  SLIP_DATE LIKE :hv_date || '%'
+       AND    DBIT_CRED_DIVS = DECODE( :hv_param_acct_code, '102701', '2',  /** 받을어음 **/
+                                                            '200601', '1' ) /** 지급어음 **/
+       AND ACCT_CODE in ( :hv_param_acct_code, :hv_param_acct_code2);
+
+   EXEC SQL DECLARE CURS1 CURSOR FOR
+       
+       SELECT MIN(FK_SLIP_DATE),               MIN(FK_SLIP_DEPT),
+              MIN(FK_SLIP_CLSS),          MIN(FK_SLIP_MAIN),
+              MIN(SLIP_SUB),              ACCT_CODE,
+              MIN(FK_SLIP_DATE),  
+              FNSH_DATE,
+              CMPN_NUM,                   MIN(COST_DEPT),
+              MANG_NUM,                   DBCR_DIVS,
+              SUM(AMT) 
+       FROM   FATA210
+       WHERE  FK_SLIP_DATE LIKE :hv_date || '%'
+       AND    ACCT_CODE in ( :hv_param_acct_code, :hv_param_acct_code2 )
+       AND    DBCR_DIVS = DECODE( :hv_param_acct_code, '102701', '2',
+                                                       '200601', '1')
+      GROUP BY CMPN_NUM, MANG_NUM, ACCT_CODE, FNSH_DATE, DBCR_DIVS
+/****
+       AND    FK_SLIP_DATE||FK_SLIP_DEPT||FK_SLIP_CLSS||FK_SLIP_MAIN != '20020927H0000070001'
+       AND    FK_SLIP_DATE||FK_SLIP_DEPT||FK_SLIP_CLSS||FK_SLIP_MAIN != '20020927H0000070002'
+       AND    FK_SLIP_DATE||FK_SLIP_DEPT||FK_SLIP_CLSS||FK_SLIP_MAIN != '20020927H0000070003'
+****/
+       ;
+
+   EXEC SQL OPEN CURS1;
+
+   for ( inx=0;;inx++ )
+   {
+       VCHINIT(hv_slip_date);         VCHINIT(hv_slip_dept);
+       VCHINIT(hv_slip_clss);         VCHINIT(hv_slip_main);
+       hv_slip_sub = 0;               VCHINIT(hv_acct_code);
+       VCHINIT(hv_issu_date);         VCHINIT(hv_fnsh_date);
+       VCHINIT(hv_cmpn_num);          VCHINIT(hv_cost_dept);
+       VCHINIT(hv_mang_num);          VCHINIT(hv_dbcr_divs);
+       hv_amt = 0;
+
+       EXEC SQL FETCH CURS1 INTO
+               :hv_slip_date,               :hv_slip_dept,
+               :hv_slip_clss,               :hv_slip_main,
+               :hv_slip_sub,                :hv_acct_code,
+               :hv_issu_date,               :hv_fnsh_date,
+               :hv_cmpn_num,                :hv_cost_dept,
+               :hv_mang_num,                :hv_dbcr_divs,
+               :hv_amt;
+
+       if ( SQLCODE == SQL_NO_DATA )
+       {
+           if ( inx == 0 )
+           {
+               printf("생성할 자료가 없음 :%d\n",sqlca.sqlcode);
+               EXEC SQL CLOSE CURS1;
+               return FAILURE;
+           }
+           else
+               break;
+       }
+
+       else if ( SQLCODE != SQL_OK )
+       {
+           printf("NOT OK ERROR : %d\n",sqlca.sqlcode);
+           EXEC SQL CLOSE CURS1;
+           EXEC SQL ROLLBACK WORK;
+           return FAILURE;
+       }
+
+       EXEC SQL
+           INSERT
+           INTO   JATZ700
+                ( SLIP_DIVS,                 SLIP_DATE,
+                  SLIP_UNIT,                 SLIP_CLSS,
+                  SLIP_MAIN_NUM,             SLIP_SUB_NUM,
+                  ACCT_CODE,                 ISSU_DATE,
+                  FNSH_DATE,                 CMPN_NUM,
+                  COST_DEPT_CODE,            MANG_NUM,
+                  DBIT_CRED_DIVS,            AMT,
+                  UPD_DATE
+                )
+           VALUES ('A',                     :hv_slip_date,
+                   :hv_slip_dept,           :hv_slip_clss,
+                   :hv_slip_main,           :hv_slip_sub,
+                   :hv_param_acct_code,     :hv_issu_date,
+                   :hv_fnsh_date,           :hv_cmpn_num,
+                   :hv_cost_dept,           :hv_mang_num, 
+                   :hv_dbcr_divs,           :hv_amt,
+                   SYSDATE
+                  );
+       if ( SQLCODE != SQL_OK )
+       {
+           printf("Z700 INSERT ERROR : %d, %s\n",sqlca.sqlcode,hv_mang_num.arr);
+           EXEC SQL CLOSE CURS1;
+           EXEC SQL ROLLBACK WORK;
+           return FAILURE;
+       }
+       printf( "%5d => 어음번호:%s\n", ++cnt, hv_mang_num.arr );
+    }  /** END FOR **/
+
+    EXEC SQL CLOSE CURS1;
+    EXEC SQL COMMIT WORK;
+
+    printf( "%d 건 insert.\n", cnt );
+
+    if ( strcmp( hv_param_acct_code.arr, "102701" ) == 0 )
+    {
+        ins_z702_main();
+        if ( not_found_cost_dept() == TRUE )
+            printf( "not_found_dept: 사내받을어음만기 증빙발생 skiped.\n" );
+        else
+        {
+            printf( "사내받을어음만기 증빙 생성중...\n" );
+            iche_drft_fnsh();
+        }
+    }
+    else if ( strcmp( hv_param_acct_code.arr, "200601" ) == 0 )
+    {
+        ins_z702_main();
+        if ( not_found_cost_dept() == TRUE )
+            printf( "not_found_dept: 사내지급어음만기 증빙발생 skiped.\n" );
+        else
+        {
+            printf( "사내지급어음만기 증빙 생성중...\n" );
+            iche_drft_fnsh();
+        }
+    }
+    return SUCCESS;
+}
+/***************************************************************/
+/* ins_z702_main()                                             */
+/* z700에서 만기 데이타를 읽어 H0000으로 Z702에 INSERT하고     */
+/* 귀속부서별로 찾는 sub function을 호출한다.                  */
+/***************************************************************/
+ins_z702_main()
+{
+   EXEC SQL
+       DELETE 
+       FROM  JATZ702 
+       WHERE WORK_DATE = :hv_date
+       AND   IN_OUT_DIVS = '2'
+       AND   ACCT_CODE = :hv_param_acct_code;
+     /***  AND   DRFT_NUM NOT IN ('0T8-800247');  ***/
+
+   EXEC SQL DECLARE z700_cur CURSOR FOR
+            SELECT NVL( MANG_NUM, ' ' ),        NVL( slip_date,' '),
+                   NVL( issu_date,' '),         NVL( CMPN_NUM,' '),
+                   NVL( AMT,0),                 NVL( SLIP_DIVS,' '),
+                   NVL( SLIP_DATE, ' ' ),       NVL( SLIP_UNIT,' '),
+                   NVL( SLIP_CLSS,' '),         NVL( SLIP_MAIN_NUM,0),
+                   NVL( SLIP_SUB_NUM,0)
+             FROM  JATZ700
+            WHERE  SLIP_DATE LIKE :hv_date || '%'
+            AND    DBIT_CRED_DIVS = DECODE( :hv_param_acct_code, '102701', '2',
+                                                                 '200601', '1')
+            AND    ACCT_CODE = :hv_param_acct_code
+          /**  AND   MANG_NUM NOT IN ('0T8-800247')  **/
+           ORDER BY SLIP_DATE; 
+
+       EXEC SQL OPEN z700_cur;
+
+       for ( inx = 0; ; inx++ )
+       { 
+           VCHINIT(hv_drft_num);
+           VCHINIT(hv_fnsh_date);
+           VCHINIT(hv_issu_date);
+           VCHINIT(hv_cmpn_num);
+           hv_amt = 0;
+  
+           EXEC SQL FETCH z700_cur INTO
+                   :hv_drft_num,           :hv_fnsh_date,
+                   :hv_issu_date,          :hv_cmpn_num,
+                   :hv_amt,                :slip_divs,
+                   :slip_date,             :slip_unit,
+                   :slip_clss,             :slip_main_num,
+                   :slip_sub_num;
+ 
+           if ( SQLCODE == SQL_NO_DATA )
+           {
+               if ( inx == 0 )
+               {
+                   printf("생성할 자료가 없음 :%d\n",sqlca.sqlcode);
+                   EXEC SQL CLOSE z700_cur;
+                   return FAILURE;
+               }
+               else
+	       {
+                   puts("step1");
+                   break;
+               }
+           }
+           else if ( SQLCODE != SQL_OK )
+           {
+               printf("NOT OK ERROR : %d\n",sqlca.sqlcode);
+               EXEC SQL CLOSE z700_cur;
+               return FAILURE;
+           }
+
+           hv_drft_num.len        = strlen(hv_drft_num.arr);
+           hv_fnsh_date.len       = strlen(hv_fnsh_date.arr);
+           hv_issu_date.len       = strlen(hv_issu_date.arr);
+           hv_cmpn_num.len        = strlen(hv_cmpn_num.arr);
+
+           Insert_Jatz702(1, "Main      "); 
+          
+           if ( strcmp( hv_param_acct_code.arr, "102701" ) == 0 )
+               make_detail_receivable_drft();
+
+           else if ( strcmp( hv_param_acct_code.arr, "200601" ) == 0 )
+               make_detail_payable_drft();
+        }
+
+    EXEC SQL CLOSE z700_cur;
+    EXEC SQL COMMIT WORK;
+  
+    return SUCCESS;
+}
+
+/***************************************************************/
+/* make_detail_payable_drft()                                  */
+/* z702에서 지금어음만기 데이타의 원천 발생 데이타를 다시읽어  */
+/* 귀속부서별로 찾는 z702에 insert한다.                        */
+/***************************************************************/
+make_detail_payable_drft()
+{
+    jnx = 1;
+
+    EXEC SQL 
+    SELECT NVL( SUM( AMT ), 0 ),
+           COUNT( AMT )
+    INTO  :t_amt,
+          :cnt_1
+    FROM JATZ702
+    WHERE DRFT_NUM = RTRIM( :hv_drft_num, ' ' )
+    AND GUBUN = '2'
+    AND WORK_DATE <= :hv_date
+    AND ACCT_CODE = '200601'
+    AND IN_OUT_DIVS = '1';
+
+    if ( sqlca.sqlcode != 0 ) 
+        t_amt = 0;
+    
+    if ( t_amt != hv_amt && cnt_1 !=  0 ) 
+    {
+         printf("hv_amt : %15.f, dmnd : %15.f \n", hv_amt, t_amt );
+         Insert_Jatz702( 2, "Detail 1 not match " );
+         return;
+    }
+              
+    EXEC SQL DECLARE c2 CURSOR FOR
+    SELECT DEPT_CODE,
+           AMT
+    FROM   JATZ702
+    WHERE  DRFT_NUM = RTRIM( :hv_drft_num, ' ' )
+    AND    GUBUN = '2'
+    AND    WORK_DATE <= :hv_date
+    AND    ACCT_CODE = '200601'
+    AND    IN_OUT_DIVS = '1';
+
+    EXEC SQL OPEN c2;
+
+    while ( 1 )
+    {
+        EXEC SQL FETCH c2 INTO :hv_c2_dept_code,
+                               :hv_c2_amt ;
+
+        if ( sqlca.sqlcode != 0 )
+            break;
+        
+        EXEC SQL
+            INSERT 
+            INTO   JATZ702
+                 ( WORK_DATE      ,            ACCT_CODE      ,
+                   DRFT_NUM       ,            GUBUN          ,
+                   DEPT_CODE      ,            SEQ            ,
+                   ISSU_DATE      ,            FNSH_DATE      , 
+                   CMPN_NUM       ,            AMT            ,
+                   UPD_EMPNO      ,            UPD_DATE       ,
+                   in_out_divs    ,            slip_divs      ,
+                   slip_date      ,            slip_unit      ,
+                   slip_clss      ,            slip_main_num  ,  
+                   slip_sub_num   ) 
+           VALUES (:hv_date,                   '200601',
+                   RTRIM( :hv_drft_num, ' ' ) ,     '2',
+                   :hv_c2_dept_code,           :jnx,
+                   RTRIM( :hv_issu_date ),     RTRIM( :hv_fnsh_date ),
+                   RTRIM( :hv_cmpn_num ) ,     :hv_c2_amt,
+                   NULL         ,              NULL,
+                   '2'          ,              :slip_divs      ,
+                   :slip_date      ,           :slip_unit      ,
+                   :slip_clss      ,           :slip_main_num  ,
+                   :slip_sub_num   ); 
+        jnx++; 
+    }
+   
+    EXEC SQL CLOSE c2;
+    if ( jnx == 1 )
+        Insert_Jatz702( 2, "Detail 1 not match ");
+}
+
+make_detail_receivable_drft()
+{
+    jnx = 1;
+
+    EXEC SQL
+        SELECT NVL( SUM( AMT ), 0 ) 
+        INTO   :t_amt
+        FROM   JATZ702
+        WHERE  DRFT_NUM = RTRIM( :hv_drft_num,' ')
+        AND WORK_DATE <= :hv_date
+        AND ACCT_CODE = '102701'
+        AND IN_OUT_DIVS = '1'
+        AND GUBUN = '2';
+
+    if ( sqlca.sqlcode != 0 ) 
+        t_amt = 0;
+
+    if ( hv_amt < 0)
+        t_amt = -1*t_amt;
+    
+    if ( t_amt != hv_amt ) 
+    {
+         printf("hv_amt : %15.f, dmnd : %15.f \n", hv_amt, t_amt );
+         Insert_Jatz702( 2, "102701 : Detail 1 not match " );
+         return;
+    }
+              
+    EXEC SQL DECLARE z702_cur CURSOR FOR
+    SELECT DEPT_CODE,
+           CMPN_NUM,
+           AMT
+    FROM   JATZ702
+    WHERE  DRFT_NUM = RTRIM( :hv_drft_num, ' ' )
+    AND    WORK_DATE <= :hv_date
+    AND    ACCT_CODE = '102701'
+    AND    IN_OUT_DIVS = '1'
+    AND    GUBUN = '2' ;
+
+    EXEC SQL OPEN z702_cur;
+
+    while ( 1 )
+    {
+        EXEC SQL FETCH z702_cur INTO :hv_c2_dept_code,
+                                     :hv_c2_cmpn_num,
+                                     :hv_c2_amt ;
+
+        if ( sqlca.sqlcode != 0 )
+            break;
+
+        if ( hv_amt < 0)
+            hv_c2_amt = -1*hv_c2_amt;
+
+        EXEC SQL
+            INSERT 
+            INTO   JATZ702
+                 ( WORK_DATE      ,            ACCT_CODE      ,
+                   DRFT_NUM       ,            GUBUN          ,
+                   DEPT_CODE      ,            SEQ            ,
+                   ISSU_DATE      ,            FNSH_DATE      , 
+                   CMPN_NUM       ,            AMT            ,
+                   UPD_EMPNO      ,            UPD_DATE       ,
+                   in_out_divs    ,            slip_divs      ,
+                   slip_date      ,            slip_unit      ,
+                   slip_clss      ,            slip_main_num  ,  
+                   slip_sub_num   ) 
+           VALUES (:hv_date,                   '102701',
+                   RTRIM( :hv_drft_num, ' ' ) ,     '2',
+                   :hv_c2_dept_code,           :jnx,
+                   RTRIM( :hv_issu_date ),     RTRIM( :hv_fnsh_date ),
+                   RTRIM( :hv_c2_cmpn_num ) ,     :hv_c2_amt,
+                   NULL         ,              NULL,
+                   '2'          ,              :slip_divs      ,
+                   :slip_date      ,           :slip_unit      ,
+                   :slip_clss      ,           :slip_main_num  ,
+                   :slip_sub_num   ); 
+        jnx++;
+    }
+   
+    EXEC SQL CLOSE z702_cur;
+    if ( jnx == 1 )
+        Insert_Jatz702( 2, "Detail 1 not match ");
+}
+
+
+
+void Insert_Jatz702( int p, char *str )
+{
+    if ( p == 1 ) 
+        strcpy(hv_gubun,"1");
+    else
+        strcpy(hv_gubun,"2");
+
+    EXEC SQL 
+        INSERT
+        INTO   JATZ702
+             ( WORK_DATE,                    ACCT_CODE      ,
+               DRFT_NUM,                     GUBUN          ,
+               DEPT_CODE,                    SEQ, 
+               ISSU_DATE,                    FNSH_DATE      , 
+               CMPN_NUM       ,              AMT            ,
+               UPD_EMPNO      ,              UPD_DATE       ,
+               in_out_divs    ,              slip_divs      ,
+               slip_date,                    slip_unit      ,
+               slip_clss,                    slip_main_num  ,
+               slip_sub_num   ) 
+        VALUES (:hv_date,                    :hv_param_acct_code ,
+                RTRIM( :hv_drft_num, ' ' ),       :hv_gubun    ,
+                'H0000',                     1,
+                RTRIM( :hv_issu_date ),      RTRIM( :hv_fnsh_date ),
+                :hv_cmpn_num,                :hv_amt,
+                '**',                        NULL   ,
+                '2',                         :slip_divs,
+                :slip_date,                  :slip_unit      ,
+                :slip_clss,                  :slip_main_num,
+                :slip_sub_num
+               ); 
+
+    printf("%s INSERT CNT:%d, gubun:%d, drft:%s\n",str,inx, p, hv_drft_num.arr);
+}
+
+iche_drft_fnsh()
+{
+    char pre_drft_num[12];
+    char pre_fnsh_date[9];
+    int hv_dist_divs;
+    strcpy( pre_drft_num, "0000" );
+    strcpy( pre_fnsh_date, "0000" );
+    exec sql declare z702 cursor for
+    select RTRIM( a.drft_num ),
+           DECODE( a.ACCT_CODE,'102701',decode(gubun,'1','103002','2','103001'),
+                               '200601',decode(gubun,'1','200902','2','200901')
+                 ),
+           DECODE( a.ACCT_CODE,'102701', decode( a.gubun, '1', '1', '2', '2' ),
+                               '200601', decode( a.gubun, '1', '2', '2', '1' )
+                 ),
+           DECODE( a.ACCT_CODE, '102701', '사내 받을어음 만기전표',
+                                '200601', '사내 지급어음 만기전표'
+                 ),
+           RTRIM( a.dept_code ),
+           a.issu_date,
+           a.fnsh_date,
+           RTRIM( a.cmpn_num ),
+           SUBSTRB( b.cmpn_name, 1, 40 ),
+           a.amt,
+           a.slip_date
+      FROM JATZ702 A,
+           FATX500 B
+     where a.acct_code = :hv_param_acct_code
+       and a.work_date = :hv_date
+       and a.in_out_divs = '2'
+       and a.amt != 0
+       and a.cmpn_num = b.cmpn_num
+     order by a.work_date,drft_num,fnsh_date, acct_code, gubun, nvl(slip_main_num,1) desc;
+   /**  order by a.work_date,acct_code,drft_num, gubun, nvl(slip_main_num,1) desc; **/
+
+    exec sql open z702;
+
+    while ( 1 )
+    {
+        exec sql fetch z702  into :hv_z702_drft_num,
+                                  :hv_z702_acct_code,
+                                  :hv_z702_dbit_cred_divs,
+                                  :hv_z702_note1,
+                                  :hv_z702_dept_code,
+                                  :hv_z702_issu_date,
+                                  :hv_z702_fnsh_date,
+                                  :hv_z702_cmpn_num,
+                                  :hv_z702_cmpn_name,
+                                  :hv_z702_amt;
+
+        if ( sqlca.sqlcode != 0 )
+
+        {
+            printf( " 작업이 완료되었음\n" );
+            printf( "%s 건수 ====>  %14.f  103002 금액====>  %14.f  \n", hv_z702_acct_code, cnt_103001 , amt_103002 );
+            printf( "%s 건수 ====>  %14.f  103001 금액====>  %14.f  \n", hv_z702_acct_code, cnt_103001 , amt_103001 );
+
+            break;
+        }
+
+        if ( strncmp( hv_z702_drft_num.arr, "8800000582",10 ) == 0 )
+        {
+             printf("drft_num : %s\n", hv_z702_drft_num.arr);
+             VCHINIT(hv_z702_drft_num);
+             strncpy(hv_z702_drft_num.arr, "880000058",9);
+             hv_z702_drft_num.len = strlen(hv_z702_drft_num.arr);
+             printf("drft_num : %s\n", hv_z702_drft_num.arr);
+        }
+  
+        if ( strcmp( hv_z702_drft_num.arr, pre_drft_num ) != 0 ||
+             strcmp( hv_z702_fnsh_date.arr, pre_fnsh_date ) != 0 )
+        {
+            get_prof_num();
+            hv_prof_sub = 1;
+        }
+        else
+            hv_prof_sub++;
+
+        EXEC SQL SELECT MAX(DECODE(NVL(DIST_DIVS, 'N'), 'Y', 1, 0))
+                 INTO   :hv_dist_divs
+                 FROM   JATB209
+                 WHERE  DRFT_NUM = RTRIM(:hv_z702_drft_num);
+
+        if ( hv_dist_divs == 1 )
+        { 
+            hv_dist_divs = 0;
+            VCHINIT(hv_z702_dept_code);
+            strcpy(hv_z702_dept_code.arr, "H0000");
+            hv_z702_dept_code.len = strlen(hv_z702_dept_code.arr);
+        }
+
+        make_prof();
+        
+        strcpy( pre_drft_num, hv_z702_drft_num.arr );
+        strcpy( pre_fnsh_date, hv_z702_fnsh_date.arr ); 
+
+        if ( strncmp( hv_z702_acct_code , "103002", 6 ) == 0 ||
+             strncmp( hv_z702_acct_code , "200902", 6 ) == 0 )
+        {
+            amt_103002 = amt_103002 + hv_z702_amt;
+            cnt_103002 = cnt_103002 + 1;
+        }
+        else
+        {
+            amt_103001 = amt_103001 + hv_z702_amt;
+            cnt_103001 = cnt_103001 + 1;
+        }
+        VCHINIT(hv_z702_cmpn_num);
+    }
+    exec sql close z702;
+/******************* 
+    if ( strncmp( hv_param_acct_code.arr, "102701", 6) == 0 )
+    {
+        exec sql declare halin_cursor cursor for
+        select RTRIM( a.drft_num ),
+               DECODE( a.ACCT_CODE,'102701',decode(gubun,'1','103001','2','103001'),
+                                   '200601',decode(gubun,'1','200902','2','200901')
+                     ),
+               DECODE( a.ACCT_CODE,'102701', decode( a.gubun, '1', '2', '2', '2' ),
+                                   '200601', decode( a.gubun, '1', '2', '2', '1' )
+                     ),
+               DECODE( a.ACCT_CODE, '102701', '사내 받을어음 만기전표',
+                                    '200601', '사내 지급어음 만기전표'
+                     ),
+               RTRIM( a.dept_code ),
+               a.issu_date,
+               a.fnsh_date,
+               RTRIM( a.cmpn_num ),
+               SUBSTRB( b.cmpn_name, 1, 40 ),
+               decode(a.gubun, '1', a.amt * -1, a.amt),
+               a.slip_date
+          FROM JATZ702 A,
+               FATX500 B
+         where a.acct_code = :hv_param_acct_code
+           and a.work_date < :hv_date
+           and a.in_out_divs = '1'
+           and a.amt != 0
+           and a.cmpn_num = b.cmpn_num
+           and a.drft_num in ( select drft_num from jatb209
+                               where  drft_num != '8900000151'
+                               and    fnsh_date like :hv_date||'%'
+                               and    nvl(dist_divs, 'N') = 'Y'
+                             )
+         order by a.work_date,acct_code,drft_num, gubun, nvl(slip_main_num,1) desc;
+
+        exec sql open halin_cursor;
+    
+        while ( 1 )
+        {
+            exec sql fetch halin_cursor into :hv_halin_drft_num,
+                                             :hv_halin_acct_code,
+                                             :hv_halin_dbit_cred_divs,
+                                             :hv_halin_note1,
+                                             :hv_halin_dept_code,
+                                             :hv_halin_issu_date,
+                                             :hv_halin_fnsh_date,
+                                             :hv_halin_cmpn_num,
+                                             :hv_halin_cmpn_name,
+                                             :hv_halin_amt;
+    
+            if ( sqlca.sqlcode != 0 )
+    
+            {
+                printf( " 작업이 완료되었음\n" );
+                printf( "%s 건수 ====>  %14.f  103002 금액====>  %14.f  \n", hv_halin_acct_code, cnt_103001 , amt_103002 );
+                printf( "%s 건수 ====>  %14.f  103001 금액====>  %14.f  \n", hv_halin_acct_code, cnt_103001 , amt_103001 );
+    
+                break;
+            }
+    
+            if ( strcmp( hv_halin_drft_num.arr, pre_drft_num ) != 0 )
+            {
+                get_halin_prof_num();
+                hv_prof_sub = 1;
+            }
+            else
+                hv_prof_sub++;
+    
+            EXEC SQL SELECT MAX(DECODE(NVL(DIST_DIVS, 'N'), 'Y', 1, 0))
+                     INTO   :hv_dist_divs
+                     FROM   JATB209
+                     WHERE  DRFT_NUM = RTRIM(:hv_halin_drft_num);
+    
+            make_halin_prof();
+    puts("6");
+    
+            strcpy( pre_drft_num, hv_halin_drft_num.arr );
+    puts("7");
+    
+            if ( strncmp( hv_halin_acct_code , "103002", 6 ) == 0 ||
+                 strncmp( hv_halin_acct_code , "200902", 6 ) == 0 )
+            {
+                amt_103002 = amt_103002 + hv_halin_amt;
+                cnt_103002 = cnt_103002 + 1;
+            }
+            else
+            {
+                amt_103001 = amt_103001 + hv_halin_amt;
+                cnt_103001 = cnt_103001 + 1;
+            }
+        }
+    }
+*******************/
+    printf( "이체중...\n" );
+    EXEC SQL
+    EXECUTE BEGIN proc_iche_batch( :hv_z702_fnsh_date,
+                                      '27',
+                                      'B9',
+                                      :hv_flag,
+                                      :hv_err_msg );
+
+    END;
+    END-EXEC;
+
+    if ( strncmp( hv_flag.arr, "N", 1) == 0 )
+    {
+        int kkk;
+        for ( kkk = 0; kkk < strlen(hv_err_msg.arr); kkk++)
+        {
+            if ( *(hv_err_msg.arr + kkk) == '!' )
+                printf("\n");
+            printf("%c",*(hv_err_msg.arr + kkk));
+        } 
+        printf( "이체시 error ==> %s \n", hv_err_msg.arr );
+        printf("어음번호 : %s\n", hv_z702_drft_num.arr ); 
+        EXEC SQL ROLLBACK WORK;
+        EXEC SQL CLOSE CURS1;
+        exit ( 9 );
+    }
+    printf( "이체완료: %s\n", hv_flag.arr );
+    EXEC SQL COMMIT WORK;
+}
+
+
+
+/**************************************************************/
+/*  get_prof_num()                                            */
+/**************************************************************/
+get_prof_num()
+{
+   EXEC SQL
+       EXECUTE BEGIN PROC_GET_SLIP_NUM( :hv_z702_fnsh_date,
+                                           'H0000',
+                                           '27',
+                                           :hv_prof_num );
+                END;
+       END-EXEC;
+
+   if ( strcmp( hv_prof_num.arr, "EEEE" ) == 0 )
+   {
+       EXEC SQL ROLLBACK WORK;
+       printf( "err: 일계표가 생성되지 않았습니다.\n" );
+       exit ( 9 );
+   }
+   else if ( strcmp( hv_prof_num.arr, "PROF" ) == 0 )
+   {
+       EXEC SQL ROLLBACK WORK;
+       printf( "err: 전표차수가 아님.\n" );
+       exit ( 9 );
+   }
+   else if ( strcmp( hv_prof_num.arr, "CLSE" ) == 0 )
+   {
+       EXEC SQL ROLLBACK WORK;
+       printf( "err: 일계표가 마감됨.\n" );
+       exit ( 9 );
+   }
+   printf( "증빙번호:%sH0000 27%s\n", hv_z702_fnsh_date.arr, hv_prof_num.arr );
+}
+
+make_prof()
+{
+    EXEC SQL
+        SELECT nvl( DVSN_CODE, ' ' ),
+               nvl( SUBSTRB( DEPT_NAME, 1, 30 ), ' ' )
+        INTO   :hv_dvsn_code,
+               :hv_dept_name
+        FROM   FATX010
+        WHERE  DEPT_CODE = RTRIM( :hv_z702_dept_code );
+
+    if (strlen(hv_z702_cmpn_num.arr) > 10) 
+	strcpy(hv_cmpn_divs.arr,"B");
+    else
+	strcpy(hv_cmpn_divs.arr,"A");
+    hv_cmpn_divs.len = strlen(hv_cmpn_divs.arr);
+
+    EXEC SQL
+        INSERT
+        INTO   FATA120
+             ( PROF_DATE,                    PROF_CLSS,
+               PROF_DEPT,                    PROF_MAIN,
+               PROF_SUB,
+               ACCT_CODE,                    COST_DEPT,
+               DBCR_DIVS,                    AMT,
+               NOTE1,                        NOTE2,
+               BUSN_DIVS,                    DVSN_CODE,
+               CMPN_DIVS,
+               CMPN_NUM,                     CMPN_NAME,
+               MANG_NUM,                     ISSU_DATE,
+               FNSH_DATE,                    VAT_CODE,
+               ICHE_FLAG,
+               UPD_DATE,                     UPD_EMPNO )
+        VALUES ( :hv_z702_fnsh_date,         '27',
+                 'H0000',                    :hv_prof_num,
+                 :hv_prof_sub,
+                 :hv_z702_acct_code,         :hv_z702_dept_code,
+                 :hv_z702_dbit_cred_divs,    :hv_z702_amt,
+                 :hv_z702_note1,             '  ',
+                 'B9',                       :hv_dvsn_code,
+                 :hv_cmpn_divs,
+                 :hv_z702_cmpn_num,          :hv_z702_cmpn_name,
+                 :hv_z702_drft_num,          :hv_z702_issu_date,
+                 :hv_z702_fnsh_date,         '00',
+                 'N',
+                 SYSDATE,                    'H2100');
+
+     if (SQLCODE == SQL_OK)
+     {
+         printf( "FATA120 INSERT : %s: %s %s %d\n", hv_z702_drft_num.arr, hv_z702_issu_date.arr, hv_prof_num.arr, hv_prof_sub );
+     }
+     else
+     {
+         printf( "FATA120 INSERT ERROR : %d: %s %s %s %d\n", sqlca.sqlcode, hv_z702_drft_num.arr, hv_z702_issu_date.arr, hv_prof_num.arr, hv_prof_sub );
+         EXEC SQL CLOSE z702;
+         EXEC SQL ROLLBACK WORK;
+         exit(0);
+     }
+}
+
+/**************************************************************/
+/*  get_halin_prof_num()                                      */
+/**************************************************************/
+get_halin_prof_num()
+{
+   VCHINIT(hv_prof_num);
+   EXEC SQL
+       EXECUTE BEGIN PROC_GET_SLIP_NUM( :hv_halin_fnsh_date,
+                                           'H0000',
+                                           '27',
+                                           :hv_prof_num );
+                END;
+       END-EXEC;
+
+   if ( strcmp( hv_prof_num.arr, "EEEE" ) == 0 )
+   {
+       EXEC SQL ROLLBACK WORK;
+       printf( "err: 일계표가 생성되지 않았습니다.\n" );
+       exit ( 9 );
+   }
+   else if ( strcmp( hv_prof_num.arr, "PROF" ) == 0 )
+   {
+       EXEC SQL ROLLBACK WORK;
+       printf( "err: 전표차수가 아님.\n" );
+       exit ( 9 );
+   }
+   else if ( strcmp( hv_prof_num.arr, "CLSE" ) == 0 )
+   {
+       EXEC SQL ROLLBACK WORK;
+       printf( "err: 일계표가 마감됨.\n" );
+       exit ( 9 );
+   }
+   printf( "증빙번호:%sH0000 27%s\n", hv_halin_fnsh_date.arr, hv_prof_num.arr );
+}
+
+make_halin_prof()
+{
+    puts("1");
+    EXEC SQL
+        SELECT nvl( DVSN_CODE, ' ' ),
+               nvl( SUBSTRB( DEPT_NAME, 1, 30 ), ' ' )
+        INTO   :hv_dvsn_code,
+               :hv_dept_name
+        FROM   FATX010
+        WHERE  DEPT_CODE = RTRIM( :hv_halin_dept_code );
+
+    puts("2");
+    if (strlen(hv_halin_cmpn_num.arr) > 10)
+        strcpy(hv_cmpn_divs.arr,"B");
+    else
+        strcpy(hv_cmpn_divs.arr,"A");
+
+    hv_cmpn_divs.len = strlen(hv_cmpn_divs.arr);
+
+    puts("3");
+    EXEC SQL
+        INSERT
+        INTO   FATA120
+             ( PROF_DATE,                    PROF_CLSS,
+               PROF_DEPT,                    PROF_MAIN,
+               PROF_SUB,
+               ACCT_CODE,                    COST_DEPT,
+               DBCR_DIVS,                    AMT,
+               NOTE1,                        NOTE2,
+               BUSN_DIVS,                    DVSN_CODE,
+               CMPN_DIVS,
+               CMPN_NUM,                     CMPN_NAME,
+               MANG_NUM,                     ISSU_DATE,
+               FNSH_DATE,                    VAT_CODE,
+               ICHE_FLAG,
+               UPD_DATE,                     UPD_EMPNO )
+        VALUES ( :hv_halin_fnsh_date,         '27',
+                 'H0000',                    :hv_prof_num,
+                 :hv_prof_sub,
+                 :hv_halin_acct_code,         :hv_halin_dept_code,
+                 :hv_halin_dbit_cred_divs,    :hv_halin_amt,
+                 :hv_halin_note1,             '  ',
+                 'B9',                       :hv_dvsn_code,
+                 :hv_cmpn_divs,
+                 :hv_halin_cmpn_num,          :hv_halin_cmpn_name,
+                 :hv_halin_drft_num,          :hv_halin_issu_date,
+                 :hv_halin_fnsh_date,         '00',
+                 'N',
+                 SYSDATE,                    'H2100');
+
+    puts("4");
+     if (SQLCODE == SQL_OK)
+     {
+         printf( "FATA120 INSERT : %s: %s %s %d\n", hv_halin_drft_num.arr, hv_halin_issu_date.arr,
+                                                    hv_prof_num.arr, hv_prof_sub );
+     }
+     else
+     {
+         printf( "FATA120 INSERT ERROR : %d: %s %s %s %d\n", sqlca.sqlcode, hv_halin_drft_num.arr,
+                                                             hv_halin_issu_date.arr, hv_prof_num.arr,
+                                                             hv_prof_sub );
+
+/****
+         EXEC SQL CLOSE halin_cursor;
+****/
+         EXEC SQL ROLLBACK WORK;
+         exit(0);
+     }
+    puts("5");
+}
+
+bool not_found_cost_dept()
+{
+   bool not_found = FALSE;
+   int cnt;
+   char file_name[30];
+   FILE *fp;
+
+   exec sql whenever sqlerror do sql_error();
+
+   strcpy( file_name, "/app/fund/file/" );
+   strcat( file_name, hv_param_acct_code.arr );
+   strcat( file_name, "2" );
+   strcat( file_name, ".dat" );
+
+   if ( ( fp = fopen( file_name, "w" ) ) == NULL )
+   {
+        printf("Cant open error\n");
+        return (9);
+   }
+
+   EXEC SQL DECLARE not_found_cur CURSOR FOR
+       SELECT DRFT_NUM  || '==>' ||
+              SLIP_DATE || RPAD( SLIP_UNIT, 6, ' ' )
+                        || SLIP_CLSS
+                        || LPAD( SLIP_MAIN_NUM, 4, '0' )
+       FROM   JATZ702
+       WHERE WORK_DATE = :hv_date
+       AND   ACCT_CODE = :hv_param_acct_code
+       AND   GUBUN = '2'
+       AND   IN_OUT_DIVS = '2'
+       and   UPD_EMPNO = '**'
+       ORDER BY FNSH_DATE;
+    EXEC SQL OPEN not_found_cur;
+
+    while ( 1 )
+    {
+        EXEC SQL
+            FETCH not_found_cur
+            INTO :hv_print_buffer;
+
+        if ( sqlca.sqlcode == SQL_NO_DATA )
+        {
+            if ( cnt == 0 )
+            {
+                EXEC SQL CLOSE not_found_cur;
+                fclose( fp );
+                return FALSE;
+            }
+            else
+                break;
+        }
+
+        printf( "귀속부서 못찾음: %s\n", hv_print_buffer );
+        fprintf( fp, "%s\n", hv_print_buffer );
+        not_found = TRUE;
+        cnt++;
+    }
+
+    EXEC SQL CLOSE not_found_cur;
+    fclose( fp );
+    return not_found;
+}
+
+
+void sql_error()
+{
+    EXEC SQL WHENEVER SQLERROR CONTINUE;
+    printf("\n %d..%.70s\n", sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc );
+    printf("%s..\n",  sqlstm.stmt);
+    printf("%s..\n",  sqlstm.sqhstv[0]);
+    EXEC SQL ROLLBACK WORK RELEASE;
+    exit(1);
+}

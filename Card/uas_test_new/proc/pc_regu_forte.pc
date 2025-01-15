@@ -1,0 +1,319 @@
+#include <stdio.h>
+#include <math.h> 
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+
+EXEC SQL BEGIN DECLARE SECTION;
+   char    *uid = "ja/j7bhjd2@DBSTD99";	
+   static  varchar user_name[20 + 1];          /* USER NAME */
+   static  varchar password[20 + 1];           /* PASSWORD  */
+   
+   static  char hv_dmnd_date[8 + 1];  
+   static  char hv_iche_date[8 + 1];  
+   static  char hv_paym_divs[2 + 1];  
+   static  char hv_sysdate[6 + 1];  
+   static  char hv_kfb_bank_code[2 + 1];  
+   static  char hv_kfb_acnt_num[14 + 1];  
+   static  char hv_kfb_dmnd_amt[11 + 1];  
+   static  char hv_kfb_cmpn_num[13 + 1];  
+   static  char hv_kfb_cnt2[5 + 1];  
+   static  char hv_kfb_cnt_t[5 + 1];  
+   static  char hv_kfb_cnt[5 + 1];  
+   static  char hv_kfb_sum[11 + 1];  
+   static  char hv_kfb_sum_t[11 + 1];  
+   static  char hv_pass[13 + 1];  
+   static  char hv_chb_bank_code[2 + 1];  
+   static  char hv_chb_acnt_num[14 + 1];  
+   static  char hv_chb_dmnd_amt[11 + 1];  
+   static  char hv_chb_cmpn_num[13 + 1];  
+   static  char hv_chb_rownum[6 + 1];  
+   static  char hv_chb_cnt2[5 + 1];  
+   static  char hv_chb_cnt[5 + 1];  
+   static  char hv_chb_sum[12 + 1];  
+   static  int  hv_len;
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+   
+int main( int agrc, char **agrv )
+{
+   int ii;
+   int j;
+   int iii;
+   
+   FILE *fp1;
+   FILE *fp2;
+   char kfb_buf[256 + 1];
+   char chb_buf[256 + 1];
+   
+   char *t_matrix[10 + 1][10 + 1]
+   = {{"3676","3376","4985","2590","3436","0780","0732","9961","5427","1407"},
+      {"3451","4660","9108","1564","3542","6841","3996","3732","7849","2442"},
+      {"2293","6310","5885","7298","3250","1824","0000","9438","5971","5650"},
+      {"7958","1302","0831","4007","5550","7676","6375","7402","0761","9239"},
+      {"9201","6144","0741","4848","6300","3093","2927","5639","4469","8038"},
+      {"5829","5718","8100","7799","2208","7139","7198","8255","7823","5419"},
+      {"5748","6215","1219","6427","2049","5240","7019","8290","6229","4185"},
+      {"3414","5615","1690","9998","5807","7346","8581","3512","7297","4840"},
+      {"0019","0037","8054","9671","9691","0760","8872","2031","0080","2073"},
+      {"5838","3455","0980","2396","6912","8475","2209","5531","5714","6006"}};  
+    
+   int weight[13] = {17,19,23,29,31,37,41,43,47,49,51,53,61};  
+   int kfb_first_flag = 1;
+   int chb_first_flag = 1;
+   int seq = 0;
+   int i_pass;
+   int k = 0;
+   int sum_pass = 0;
+   double sum = 0;
+   int na;
+   int sum_na = 0;
+   int sum_last;
+   int s_len;
+   int aa = 0;
+   char aa_s[5 + 1]; 
+   char s_last[11 + 1];
+   char s_pa[5 + 1];
+   char s_dd[3 + 1];
+   char s_mm[3 + 1];
+   char sss[2 + 1];
+   char cmpn_num[13 + 1];
+   char cmpn_num2[13 + 1];
+   char ta[1 + 1];
+   char s_seq[6 + 1];
+   int seqq = 0;
+   int iche_dd;
+   int iche_mm;
+   int row;
+   int column;
+   int manage_sign; 
+   int pass_len; 
+   char s_matrix[4 + 1];  
+   strcpy(hv_iche_date,agrv[1]);
+   strncpy(hv_paym_divs,agrv[2],2);
+   strcpy(hv_dmnd_date,agrv[3]);
+   
+   EXEC SQL CONNECT :uid;
+      
+   /*현재일자*/
+   EXEC SQL SELECT TO_CHAR(SYSDATE,'yymmdd')
+              INTO :hv_sysdate
+              FROM DUAL;
+
+   /* 펌뱅킹 파일 Open */
+   if ((fp2=fopen("/app/fund/fb/forte_edi/regu_send/regu.dat","w"))==NULL)
+   {
+      printf("Can't open error\n");
+      exit(1);
+   }
+
+   /*전도금일경우 -03*/
+   if (strcmp(hv_paym_divs,"03")==0)
+   {
+       EXEC SQL DECLARE CURS3 CURSOR FOR
+       SELECT NVL( DECODE( SUBSTR(BANK_CODE,1, 2),
+                                        '10', '11',
+                                        '12', '11',
+                                        '13', '11',
+                                        '14', '11',
+                                        '15', '11',
+                                        '22', '20',
+                                        '24', '20',
+                                        '06', '04',
+                                        '19', '04',
+                                        '17', '11',
+                                        '72', '71',
+                                        '73', '71',
+                                        '74', '71',
+                                        '75', '71',
+                                        '25', '81',
+              SUBSTR( BANK_CODE, 1, 2 ) ) , '  ' ),
+                rpad(replace(acnt_num,'-'),14,' '),
+         LPAD(TO_CHAR(nvl(sum(DMND_AMT),0)),11,'0'),
+                                          dept_code
+         FROM JATB101
+        WHERE PAYM_DIVS = :hv_paym_divs
+          AND BANK_CODE IS NOT NULL
+          AND FNSH_FLAG = 'Y'
+          AND EXEC_DIVS = 'Y'
+          AND DMND_DATE = :hv_dmnd_date
+          and flag_01 = 'Y'
+          AND NVL(TRNS_YN, 'N') = 'N'
+          AND NVL(HOLD_PROC_YN, 'N') != 'Y'
+        group by dept_code,acnt_num,bank_code
+        order by dept_code,acnt_num,bank_code, NVL(sum(DMND_AMT),0);
+
+    EXEC SQL OPEN CURS3;
+   }
+   /*현금일경우 -01*/
+   else
+   {
+   EXEC SQL DECLARE CURS CURSOR FOR
+      SELECT NVL( DECODE( SUBSTR(BANK_CODE,1, 2),
+                                       '10', '11',
+                                       '12', '11',
+                                       '13', '11',
+                                       '14', '11',
+                                       '15', '11',
+                                       '22', '20',
+                                       '24', '20',
+                                       '06', '04',
+                                       '19', '04',
+                                       '17', '11',
+                                       '72', '71',
+                                       '73', '71',
+                                       '74', '71',
+                                       '75', '71',
+                                       '25', '81',
+                                       SUBSTR( BANK_CODE, 1, 2 ) ) , '' ),
+             rpad(replace(acnt_num,'-'),14,' '),
+             LPAD(TO_CHAR(nvl(DMND_AMT,0)),11,'0'),
+             CMPN_NUM
+        FROM JATB101
+       WHERE PAYM_DIVS = :hv_paym_divs 
+         AND BANK_CODE IS NOT NULL
+         AND FNSH_FLAG = 'Y'
+         AND EXEC_DIVS = 'Y'
+         AND FLAG_01   = 'Y'
+         AND NVL(TRNS_YN, 'N') = 'N'
+         AND DMND_DATE = :hv_dmnd_date
+         order by DEPT_CODE, DMND_AMT, CMPN_NUM, SEQ, SUB_SEQ;
+
+   EXEC SQL OPEN CURS;
+   }
+
+   for(iii=0;;iii++){
+     /*전도금일경우 -03*/
+     if (strcmp(hv_paym_divs,"03")==0)
+     {
+         EXEC SQL FETCH CURS3 INTO
+                :hv_chb_bank_code,
+                :hv_chb_acnt_num,
+                :hv_chb_dmnd_amt,
+                :hv_chb_cmpn_num;
+     }
+     else
+     {
+         EXEC SQL FETCH CURS INTO
+                :hv_chb_bank_code,
+                :hv_chb_acnt_num,
+                :hv_chb_dmnd_amt,
+                :hv_chb_cmpn_num;
+     } 
+      if(SQLCODE != SQL_NO_DATA)
+      {
+         /*처음 자료이면 표제부 만든다*/
+         if (chb_first_flag == 1)  
+         {
+           strcpy(chb_buf,"S");
+           strncat(chb_buf,"99",2);
+           strncat(chb_buf,"D537248",7);
+           strncat(chb_buf,"11161234",8);
+           strncat(chb_buf,hv_sysdate,6);
+           strncat(chb_buf,&hv_iche_date[2],6);
+           strncat(chb_buf,"3",1);
+           strncat(chb_buf,"LDC000  ",8);
+           strncat(chb_buf,"FBS     ",8);
+           strncat(chb_buf,"        ",8);
+           strncat(chb_buf,"32701164504",11);
+           strncat(chb_buf,"           ",11);
+           chb_buf[77] = '*';
+           chb_buf[78] = '\n';   
+           chb_buf[79] = '\0';   
+           printf("%s\n",chb_buf); 
+           fputs(chb_buf,fp2);
+           chb_first_flag = 0;
+         }
+
+         /*전도금일경우 -03*/
+         if (strcmp(hv_paym_divs,"03") == 0)
+             strncpy(cmpn_num2,"1048118121   ",13);
+         else
+             strncpy(cmpn_num2,hv_chb_cmpn_num,13);
+   
+         seqq = seqq + 1;
+         sprintf(s_seq,"%06d",seqq);
+         /*DATA부를 만든다.*/
+         strcpy(chb_buf,"D");
+         strncat(chb_buf,hv_chb_bank_code,2); 
+         strncat(chb_buf,s_seq,6); 
+         strncat(chb_buf,"1",1); 
+         strncat(chb_buf,hv_chb_acnt_num,14); 
+         strncat(chb_buf,hv_chb_dmnd_amt,11); 
+         strncat(chb_buf,cmpn_num2,13); 
+         strncat(chb_buf,"000",3);
+         strncat(chb_buf,"                           ",27);
+         chb_buf[77] = '*';
+         chb_buf[78] = '\n';   
+         chb_buf[79] = '\0';   
+         printf("%s\n",chb_buf);
+         fputs(chb_buf,fp2);
+     }
+     else
+     {
+        EXEC SQL CLOSE CURS3;
+        EXEC SQL CLOSE CURS; 
+        break;
+     }
+   }  
+
+   /*3.맨밑*/  
+   /*전도금일경우 -03*/
+  if (strcmp(hv_paym_divs,"03")==0)
+   {
+       EXEC SQL SELECT lpad(to_char(count(distinct dept_code)+2),5,'0'),
+                       lpad(to_char(count(distinct dept_code)),5,'0'),
+                       lpad(to_char(nvl(sum(dmnd_amt),0)),11,'0')
+                  INTO :hv_chb_cnt2,:hv_chb_cnt,:hv_chb_sum
+                  FROM JATB101
+                 WHERE PAYM_DIVS = :hv_paym_divs
+                   AND BANK_CODE IS NOT NULL
+                   AND FNSH_FLAG = 'Y'
+                   AND EXEC_DIVS = 'Y'
+                   and flag_01 = 'Y'
+                   AND NVL(HOLD_PROC_YN, 'N') != 'Y'
+                   AND DMND_DATE = :hv_dmnd_date
+                   AND NVL(TRNS_YN, 'N') = 'N'
+                   and flag_01 = 'Y';
+   }
+   else
+   {
+       EXEC SQL SELECT lpad(to_char(count(acnt_num)+2),5,'0'),
+                       lpad(to_char(count(acnt_num)),5,'0'),
+                       lpad(to_char(nvl(sum(dmnd_amt),0)),11,'0')
+                  INTO :hv_chb_cnt2,:hv_chb_cnt,:hv_chb_sum
+                  FROM JATB101
+                 WHERE PAYM_DIVS = :hv_paym_divs
+                   AND BANK_CODE IS NOT NULL
+                   AND FNSH_FLAG = 'Y'
+                   AND DMND_DATE = :hv_dmnd_date
+                   AND EXEC_DIVS = 'Y'
+                   AND FLAG_01   = 'Y'
+                   AND NVL(TRNS_YN, 'N') = 'N';
+   }
+
+   strcpy(chb_buf,"E");
+   strncat(chb_buf,hv_chb_cnt2,5);
+   strncat(chb_buf,hv_chb_cnt,5);
+   strncat(chb_buf,hv_chb_sum,11);
+   strncat(chb_buf,"00000000000000000000000000000000",32);
+   strncat(chb_buf,"     ",5);
+   strncat(chb_buf,"                  ",18);
+   chb_buf[77] = '*';
+   chb_buf[78] = '\n';
+   chb_buf[79] = '\0';
+   printf("%s\n",chb_buf);
+   fputs(chb_buf,fp2); 
+  
+   printf("조흥은행 F/B생성,...\n");
+   /*******************************************************************/
+   /*종료부                                                           */
+   /*******************************************************************/ 
+   close(fp2);
+   /*종료*/ 
+   return SUCCESS;
+}

@@ -1,0 +1,981 @@
+/**********************************************************/
+/* 화  일  명 : c_card_cmpn_load.pc                       */
+/* 작  성  일 : 2001.05.29                                */
+/* 최종수정일 :                                           */
+/**********************************************************/
+/* 내      용 : 은행자료 ---> jatb407                     */
+/* 사용 TABLE :                                           */
+/* 사용MODULE :                                           */
+/* PARAMETER  :                                           */
+/**********************************************************/
+
+#include <stdio.h>
+
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+#define SQL_DUP      -1
+
+typedef int bool;
+typedef char asciiz[100];
+
+int l_cmpn_load();       /* LG캐피탈 */
+int s_cmpn_load();       /* 신한은행 */
+int k_cmpn_load();       /* 국민은행 */
+int n_cmpn_load();       /* 농협 */
+int w_cmpn_load();       /* 우리은행 */
+int j_cmpn_load();       /* 제일은행 */
+
+/* host variable definition */
+EXEC SQL BEGIN DECLARE SECTION;
+EXEC SQL TYPE asciiz IS STRING(100) REFERENCE;
+char    *uid = "ja/j7bhjd2@DBSTD99";	
+static char chck[3];
+static char divs[3];
+static asciiz hv_cmpn_num;
+static asciiz hv_cmpn_name;
+static asciiz hv_join_store_num;
+static asciiz hv_reg_date;
+static asciiz hv_divs;
+
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+FILE *fp;
+
+char buffer[520 + 1];
+char card_bank[1 + 1];
+
+int main( int agrc, char **agrv )
+{
+   strcpy(card_bank,agrv[1]);
+
+   /* DB connetion */
+   EXEC SQL CONNECT :uid;
+
+   if (strncmp(card_bank, "L", 1) == 0 )
+   {
+       if ( l_cmpn_load() == FAILURE )
+       {
+           printf("LG캐피탈 가맹점 data load 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("LG캐피탈 가맹점 data load 성공\n");
+   }
+   else if (strncmp(card_bank, "S", 1) == 0 )
+   {
+       if ( s_cmpn_load() == FAILURE )
+       {
+           printf("신한은행 가맹점 data load 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("신한은행 가맹점 data load 성공\n");
+   }
+   else if (strncmp(card_bank, "K", 1) == 0 )
+   {
+       if ( k_cmpn_load() == FAILURE )
+       {
+           printf("국민은행 가맹점 data load 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("국민은행 가맹점 data load 성공\n");
+   }
+   else if (strncmp(card_bank, "N", 1) == 0 )
+   {
+       if ( n_cmpn_load() == FAILURE )
+       {
+           printf("농협 가맹점 data load 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("농협 가맹점 data load 성공\n");
+   }
+   else if (strncmp(card_bank, "W", 1) == 0 )
+   {
+       if ( w_cmpn_load() == FAILURE )
+       {
+           printf("우리은행 가맹점 data load 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("우리은행 가맹점 data load 성공\n");
+   }
+   else if (strncmp(card_bank, "J", 1) == 0 )
+   {
+       if ( j_cmpn_load() == FAILURE )
+       {
+           printf("제일은행 가맹점 data load 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("제일은행 가맹점 data load 성공\n");
+   }
+   else if (strncmp(card_bank, "G", 1) == 0 )
+   {
+       if ( giup_cmpn_load() == FAILURE )
+       {
+           printf("기업은행 가맹점 data load 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("기업은행 가맹점 data load 성공\n");
+   }
+
+
+   EXEC SQL COMMIT WORK;
+   return SUCCESS;
+}
+
+/* LG캐피탈 가맹점 data load */
+int l_cmpn_load()
+{
+   int inx = 0;
+
+   puts("LG캐피탈 가맹점 Data Load");
+   if (( fp=fopen( "/app/fund/fb/forte_edi/card_cmpn/lgc.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,500,fp ) != NULL )
+      {
+          strncpy(chck,&buffer[0],1);
+          if (strncmp(chck, "D", 1) == 0)
+          {
+                strncpy(hv_join_store_num, &buffer[42], 11);
+                strncpy(hv_cmpn_num, &buffer[448], 10);
+                puts(hv_cmpn_num);
+                puts(&buffer[448]);
+                strncpy(hv_cmpn_name, &buffer[58], 30);
+                inx = inx + 1; 
+                printf("%dth Data Processing 가맹점 : %s Insert!!\n", inx, hv_join_store_num); 
+                EXEC SQL
+                     INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'L',                :hv_cmpn_num,      :hv_cmpn_name,
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                  );
+
+                if(SQLCODE == SQL_DUP)
+                {
+                    printf("%dth Data Delete 가맹점 : %s!!\n", inx, hv_join_store_num); 
+                    EXEC SQL
+                         DELETE FROM JATB407
+                         WHERE  CARD_BANK = 'L'
+                         AND    CMPN_NUM = :hv_cmpn_num;
+
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("LG캐피탈 거래처 : cmpn_num : %s Delete error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                      ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                        JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                        UPD_DATE,           REG_DATE
+                                      )
+                               VALUES ( 'L',                :hv_cmpn_num,      :hv_cmpn_name,
+                                        RTRIM(:hv_join_store_num), 'Y',               'demon',
+                                        SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                      );
+
+                    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {    
+                        printf("LG캐피탈 거래처 : cmpn_num : %s Insert2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                    printf("LG캐피탈 거래처 : cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+/*
+                EXEC SQL UPDATE TV310
+*/
+                EXEC SQL UPDATE PMVT001
+                         SET    LGCARD = 'Y'
+                         WHERE  BSCD   = :hv_cmpn_num;
+
+                if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                    printf("LG캐피탈 PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+                
+            }
+        }
+        system("sh /app/fund/fb/forte_edi/card_cmpn/lgc_cmpn_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : lgc.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+/* 신한은행 가맹점 data load */
+int s_cmpn_load()
+{
+   int inx = 0;
+
+   puts("신한은행 가맹점 Data Load");
+
+   if (( fp=fopen( "/app/fund/fb/forte_edi/card_cmpn/shb.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,256,fp ) != NULL )
+      {
+          puts(buffer);
+
+          strncpy(chck,&buffer[0],2);
+          printf("chck:%s\n",chck);
+          if (strncmp(chck, "20", 2) == 0)
+          {
+                strncpy(hv_join_store_num, &buffer[2], 11);
+                strncpy(hv_cmpn_num, &buffer[13], 10);
+                strncpy(hv_cmpn_name, &buffer[36], 30);
+                strncpy(hv_divs, &buffer[66], 1);
+                strncpy(hv_reg_date, &buffer[67], 8);
+                inx = inx + 1; 
+                puts(hv_divs);
+                if (strncmp(hv_divs, "0",1) == 0 )           /*  신규  */
+                {
+                    printf("%dth Data Processing 가맹점 : %s Insert!!\n", inx, hv_join_store_num); 
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                       ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                         JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                         UPD_DATE,           REG_DATE
+                                       )
+                                VALUES ( 'S',                :hv_cmpn_num,      :hv_cmpn_name,
+                                         :hv_join_store_num, 'Y',               'demon',
+                                         SYSDATE,            :hv_reg_date
+                                       );
+
+                    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {    
+                        printf("신한은행 거래처 Insert error : %d\n",sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                       return FAILURE;
+                    }
+
+/*
+                    EXEC SQL UPDATE TV310
+*/
+                    EXEC SQL UPDATE PMVT001
+                             SET    LGCARD = 'Y'
+                             WHERE  BSCD   = :hv_cmpn_num;
+
+                    if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {
+                        printf("신한은행 PMS cmpn_num : %s Update Error1 : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                }
+                else if (strncmp(hv_divs, "2",1) == 0 )       /*  해제  */
+                {
+                    printf("%dth Data Processing 가맹점 : %s Canceled!!\n",inx,hv_join_store_num); 
+                    EXEC SQL
+                         UPDATE JATB407
+                         SET    USE_DIVS = 'N',
+                                UPD_DATE = SYSDATE
+                         WHERE  JOIN_STORE_NUM = :hv_join_store_num;
+                        
+                    if(SQLCODE != SQL_OK)
+                    {
+                        printf("신한은행 거래처 Delete error1 : %d\n",sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }    
+
+/*
+                    EXEC SQL UPDATE TV310
+*/
+                    EXEC SQL UPDATE PMVT001
+                             SET    LGCARD = 'N'
+                             WHERE  BSCD   = :hv_cmpn_num;
+
+                    if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {
+                        printf("신한은행 PMS cmpn_num : %s Update Error2 : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }    
+                else if (strncmp(hv_divs, "1",1) == 0 )       /*  변경  */
+                {
+                    printf("%dth Data Processing 가맹점 : %s Update!!\n", inx, hv_join_store_num); 
+                    printf("cmpn_num: %s Update!!\n",  hv_cmpn_num); 
+                    printf("cmpn_name: %s Update!!\n", hv_cmpn_name); 
+                    EXEC SQL
+                         UPDATE JATB407
+                         SET    CMPN_NUM = :hv_cmpn_num
+                         ,      CMPN_NAME = :hv_cmpn_name
+                         ,      USE_DIVS = 'Y'
+                         ,      UPD_EMPNO = 'demon'
+                         ,      UPD_DATE = SYSDATE
+                         WHERE  JOIN_STORE_NUM = :hv_join_store_num;
+    
+                    if(SQLCODE != SQL_OK)
+                    {
+                        printf("신한은행 거래처 Delete error2 : %d\n",sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+            }
+        }
+        system("sh /app/fund/fb/forte_edi/card_cmpn/shb_cmpn_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : shb.dat\n");
+        return FAILURE;
+    }
+    return SUCCESS;
+}
+/* 국민은행 가맹점 data load */
+int k_cmpn_load()
+{
+   int inx = 0;
+
+   puts("국민은행 가맹점 Data Load");
+   if (( fp=fopen( "/app/fund/fb/forte_edi/card_cmpn/kmb.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,520,fp ) != NULL )
+      {
+          strncpy(chck,&buffer[0],1);
+          strncpy(divs,&buffer[23],1);
+
+          /*** data부면서 가맹점등록일 경우 ***/
+          if ( strncmp(chck, "D", 1) == 0 && ( strncmp(divs, "1", 1) == 0 ) ) 
+          {
+             inx = inx + 1;
+             strncpy(hv_cmpn_num, &buffer[119], 10); /*사업자 번호 */
+             strncpy(hv_join_store_num, &buffer[7], 10); /*가맹점번호*/
+             strncpy(hv_cmpn_name, &buffer[132], 30);
+             strncpy(hv_reg_date, &buffer[24], 8); /*신규일자*/
+
+             printf("%dth Data Processing 가맹점 : /%s/, /%s/, /%s/, /%s/ Insert!!\n", inx, hv_cmpn_num, hv_cmpn_name, hv_join_store_num, hv_reg_date);
+             EXEC SQL
+                INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          
+                                    CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'K',                RTRIM(LTRIM(:hv_cmpn_num)),    
+                                    SUBSTRB(TRIM(:hv_cmpn_name),1,30),
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            :hv_reg_date
+                                  );
+
+             if(SQLCODE == SQL_DUP)
+             {
+                 printf("%dth Data Delete 가맹점 : %s!!\n", inx, hv_join_store_num);
+                 EXEC SQL
+                      DELETE FROM JATB407
+                      WHERE  CARD_BANK = 'K'
+                      AND    CMPN_NUM = RTRIM(LTRIM(:hv_cmpn_num));
+
+                 if(SQLCODE != SQL_OK)
+                 {
+                     printf("국민은행 거래처 : cmpn_num : %s Delete error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                     close(fp);
+                     EXEC SQL ROLLBACK WORK;
+                     return FAILURE;
+                 }
+
+                 EXEC SQL
+                         INSERT INTO JATB407
+                                      ( CARD_BANK,          CMPN_NUM,          
+                                        CMPN_NAME,
+                                        JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                        UPD_DATE,           REG_DATE
+                                      )
+                               VALUES ( 'K',    RTRIM(LTRIM(:hv_cmpn_num)),    
+                                        SUBSTRB( TRIM(:hv_cmpn_name), 1, 30),
+                                        RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                        SYSDATE,            :hv_reg_date
+                                      );
+
+                 printf("국민은행 거래처 delete 후 insert ");
+                 if(SQLCODE != SQL_OK)
+                 {
+                     printf("국민은행 거래처 : cmpn_num : %s Insert2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                     close(fp);
+                     EXEC SQL ROLLBACK WORK;
+                     return FAILURE;
+                 }
+             }
+             else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+             {
+                 printf("국민은행 거래처 : cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                 close(fp);
+                 EXEC SQL ROLLBACK WORK;
+                 return FAILURE;
+             }
+
+             EXEC SQL UPDATE PMVT001
+                      SET    LGCARD = 'Y'
+                      WHERE  BSCD   = RTRIM(LTRIM(:hv_cmpn_num));
+
+             if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+             {
+                 printf("국민은행 PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                 close(fp);
+                 EXEC SQL ROLLBACK WORK;
+                 return FAILURE;
+             }
+
+         }
+         /*해지의 경우(가맹점해지)*/
+         else if (strncmp(chck, "D", 1) == 0 && strncmp(divs, "9", 1) == 0 )
+         {
+             strncpy(hv_cmpn_num, &buffer[119], 10); /*사업자 번호 */
+             strncpy(hv_join_store_num, &buffer[7], 10); /*가맹점번호*/
+             strncpy(hv_cmpn_name, &buffer[132], 30);
+             strncpy(hv_reg_date, &buffer[32], 8); /*해지일자*/
+
+             EXEC SQL UPDATE JATB407
+                      SET    JOIN_STORE_NUM = RTRIM(:hv_join_store_num),
+                             CMPN_NAME = SUBSTRB( TRIM(:hv_cmpn_name), 1, 30),
+                             REG_DATE = :hv_reg_date,
+                             USE_DIVS = 'N',
+                             UPD_DATE = SYSDATE
+                      WHERE  CARD_BANK = 'K'
+                      AND    CMPN_NUM = RTRIM(LTRIM(:hv_cmpn_num));
+
+             if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+             {
+                printf("국민은행 거래처 : cmpn_num : %s update error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                close(fp);
+                EXEC SQL ROLLBACK WORK;
+                return FAILURE;
+             }
+         }
+     }
+     system("sh /app/fund/fb/forte_edi/card_cmpn/kmb_cmpn_back.sh");
+  }
+  else
+  {
+     printf("File Open Error : kmb.dat\n");
+     return FAILURE;
+  }
+
+  return SUCCESS;
+}
+
+/* 농협 가맹점 data load */
+int n_cmpn_load()
+{
+   int inx = 0;
+
+   puts("농협 가맹점 Data Load");
+   if (( fp=fopen( "/app/fund/fb/forte_edi/card_cmpn/nhc.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,520,fp ) != NULL )
+      {
+          strncpy(chck,&buffer[0],1);
+          strncpy(divs,&buffer[23],1);
+
+          /*** data부면서 가맹점등록일 경우 ***/
+          if ( strncmp(chck, "D", 1) == 0 && ( strncmp(divs, "1", 1) == 0 ) ) 
+          {
+             inx = inx + 1;
+             strncpy(hv_cmpn_num, &buffer[119], 10); /*사업자 번호 */
+             strncpy(hv_join_store_num, &buffer[7], 10); /*가맹점번호*/
+             strncpy(hv_cmpn_name, &buffer[132], 30);
+             strncpy(hv_reg_date, &buffer[24], 8); /*신규일자*/
+
+             printf("%dth Data Processing 가맹점 : /%s/, /%s/, /%s/, /%s/ Insert!!\n", 
+                        inx, hv_cmpn_num, hv_cmpn_name, hv_join_store_num, hv_reg_date);
+             EXEC SQL
+                INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          
+                                    CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'N',                RTRIM(LTRIM(:hv_cmpn_num)),    
+                                    SUBSTRB(TRIM(:hv_cmpn_name),1,30),
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            :hv_reg_date
+                                  );
+
+             if(SQLCODE == SQL_DUP)
+             {
+                 EXEC SQL
+                 UPDATE JATB407
+                 SET    CMPN_NAME =  SUBSTRB( TRIM(:hv_cmpn_name), 1, 30),
+                        JOIN_STORE_NUM = RTRIM(:hv_join_store_num),
+                        USE_DIVS = 'Y',
+                        UPD_EMPNO = 'DEMON',
+                        UPD_DATE = SYSDATE,
+                        REG_DATE = :hv_reg_date
+                 WHERE  CARD_BANK = 'N'
+                 AND    CMPN_NUM = TRIM(LTRIM(:hv_cmpn_num));
+
+                 printf("농협 가맹점 UPDATE ");
+                 if(SQLCODE != SQL_OK)
+                 {
+                     printf("농협가맹점 : cmpn_num : %s update2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                     close(fp);
+                     EXEC SQL ROLLBACK WORK;
+                     return FAILURE;
+                 }
+             }
+             else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+             {
+                 printf("농협가맹점: cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                 close(fp);
+                 EXEC SQL ROLLBACK WORK;
+                 return FAILURE;
+             }
+
+             EXEC SQL UPDATE PMVT001
+                      SET    LGCARD = 'Y'
+                      WHERE  BSCD   = RTRIM(LTRIM(:hv_cmpn_num));
+
+             if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+             {
+                 printf("농협 PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                 close(fp);
+                 EXEC SQL ROLLBACK WORK;
+                 return FAILURE;
+             }
+
+         }
+         /*해지의 경우(가맹점해지)*/
+         else if (strncmp(chck, "D", 1) == 0 && strncmp(divs, "9", 1) == 0 )
+         {
+             strncpy(hv_cmpn_num, &buffer[119], 10); /*사업자 번호 */
+             strncpy(hv_join_store_num, &buffer[7], 10); /*가맹점번호*/
+             strncpy(hv_cmpn_name, &buffer[132], 30);
+             strncpy(hv_reg_date, &buffer[32], 8); /*해지일자*/
+
+             EXEC SQL UPDATE JATB407
+                      SET    JOIN_STORE_NUM = RTRIM(:hv_join_store_num),
+                             CMPN_NAME = SUBSTRB( TRIM(:hv_cmpn_name), 1, 30),
+                             REG_DATE = :hv_reg_date,
+                             USE_DIVS = 'N',
+                             UPD_EMPNO = 'DEMON',
+                             UPD_DATE = SYSDATE
+                      WHERE  CARD_BANK = 'N'
+                      AND    CMPN_NUM = RTRIM(LTRIM(:hv_cmpn_num));
+
+             if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+             {
+                printf("농협 거래처 : cmpn_num : %s update error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                close(fp);
+                EXEC SQL ROLLBACK WORK;
+                return FAILURE;
+             }
+         }
+     }
+     system("sh /app/fund/fb/forte_edi/card_cmpn/nhc_cmpn_back.sh");
+  }
+  else
+  {
+     printf("File Open Error : nhc.dat\n");
+     return FAILURE;
+  }
+
+  return SUCCESS;
+}
+
+/* 우리은행 가맹점 data load */
+int w_cmpn_load()
+{
+   int inx = 0;
+
+   puts("우리은행 가맹점 Data Load");
+   if (( fp=fopen( "/app/fund/fb/forte_edi/card_cmpn/wbc.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,500,fp ) != NULL )
+      {
+          strncpy(divs,&buffer[66],1);
+          strncpy(chck,&buffer[0],1);
+          strncpy(hv_join_store_num, &buffer[95], 14);
+          strncpy(hv_cmpn_num, &buffer[13], 10);
+          puts(hv_cmpn_num);
+          puts(&buffer[448]);
+          strncpy(hv_cmpn_name, &buffer[36], 30);
+          inx = inx + 1; 
+
+          if (strncmp(chck, "2", 1) == 0 && strncmp(divs, "2", 1) != 0 )
+          {
+                printf("%dth Data Processing 가맹점 : %s Insert!!\n", inx, hv_join_store_num); 
+                EXEC SQL
+                     INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'W',                :hv_cmpn_num,      :hv_cmpn_name,
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                  );
+
+                if(SQLCODE == SQL_DUP)
+                {
+                    printf("%dth Data Delete 가맹점 : %s!!\n", inx, hv_join_store_num); 
+                    EXEC SQL
+                         DELETE FROM JATB407
+                         WHERE  CARD_BANK = 'W'
+                         AND    CMPN_NUM = :hv_cmpn_num;
+
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("우리은행 거래처 : cmpn_num : %s Delete error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                      ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                        JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                        UPD_DATE,           REG_DATE
+                                      )
+                               VALUES ( 'W',                :hv_cmpn_num,      :hv_cmpn_name,
+                                        RTRIM(:hv_join_store_num), 'Y',               'demon',
+                                        SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                      );
+
+                    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {    
+                        printf("우리은행 거래처 : cmpn_num : %s Insert2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                    printf("우리은행 거래처 : cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+/*
+                EXEC SQL UPDATE TV310
+*/
+                EXEC SQL UPDATE PMVT001
+                         SET    LGCARD = 'Y'
+                         WHERE  BSCD   = :hv_cmpn_num;
+
+                if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                    printf("LG캐피탈 PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+                
+            }
+            else if (strncmp(chck, "2", 1) == 0 && strncmp(divs, "2", 1) == 0 )
+            {
+                EXEC SQL UPDATE JATB407
+                         SET    USE_DIVS = 'N',
+                                UPD_DATE = SYSDATE
+                         WHERE  CARD_BANK = 'W'
+                         AND    CMPN_NUM = :hv_cmpn_num;
+
+                if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                   printf("우리은행 거래처 : cmpn_num : %s update error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                   close(fp);
+                   EXEC SQL ROLLBACK WORK;
+                   return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/forte_edi/card_cmpn/wbc_cmpn_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : wbc.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+/* 제일은행 가맹점 data load */
+int j_cmpn_load()
+{
+   int inx = 0;
+
+   puts("제일은행 가맹점 Data Load");
+   if (( fp=fopen( "/app/fund/fb/forte_edi/card_cmpn/jib.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,500,fp ) != NULL )
+      {
+          strncpy(chck,&buffer[0],1);
+          strncpy(divs,&buffer[23],1);
+                puts(chck);
+                puts(divs);
+          if (strncmp(chck, "D", 1) == 0 && strncmp(divs, "1", 1) == 0 )
+          {
+                inx = inx + 1; 
+                strncpy(hv_reg_date, &buffer[24], 8); /*신규일자*/
+                strncpy(hv_cmpn_num, &buffer[119], 13); /*사업자 번호 */
+                strncpy(hv_join_store_num, &buffer[7], 11); /*가맹점번호*/
+                puts(hv_cmpn_num);
+                strncpy(hv_cmpn_name, &buffer[132], 30);
+
+                printf("%dth Data Processing 가맹점 : %s Insert!!\n", inx, hv_join_store_num); 
+                EXEC SQL
+                     INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'J',    RTRIM(LTRIM(:hv_cmpn_num)),    :hv_cmpn_name,
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            :hv_reg_date 
+                                  );
+
+                if(SQLCODE == SQL_DUP)
+                {
+                    printf("%dth Data Delete 가맹점 : %s!!\n", inx, hv_join_store_num); 
+                    EXEC SQL
+                         DELETE FROM JATB407
+                         WHERE  CARD_BANK = 'J'
+                         AND    CMPN_NUM = RTRIM(LTRIM(:hv_cmpn_num));
+
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("제일은행 거래처 : cmpn_num : %s Delete error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                      ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                        JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                        UPD_DATE,           REG_DATE
+                                      )
+                               VALUES ( 'J',    RTRIM(LTRIM(:hv_cmpn_num)),    :hv_cmpn_name,
+                                        RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                        SYSDATE,            :hv_reg_date 
+                                      );
+
+                    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {    
+                        printf("제일은행 거래처 : cmpn_num : %s Insert2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                    printf("제일은행 거래처 : cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+/*
+                EXEC SQL UPDATE TV310
+*/
+                EXEC SQL UPDATE PMVT001
+                         SET    LGCARD = 'Y'
+                         WHERE  BSCD   = RTRIM(LTRIM(:hv_cmpn_num));
+
+                if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                    printf("제일은행 PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+                
+            }
+            /*해지의 경우*/
+            else if (strncmp(chck, "D", 1) == 0 && strncmp(divs, "9", 1) == 0 )
+            {
+                EXEC SQL UPDATE JATB407
+                         SET    USE_DIVS = 'N',
+                                UPD_DATE = SYSDATE
+                         WHERE  CARD_BANK = 'J'
+                         AND    CMPN_NUM = RTRIM(LTRIM(:hv_cmpn_num));
+
+                if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                   printf("제일은행 거래처 : cmpn_num : %s update error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                   close(fp);
+                   EXEC SQL ROLLBACK WORK;
+                   return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/forte_edi/card_cmpn/jib_cmpn_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : jib.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+/* 기업은행 가맹점 data load */
+int giup_cmpn_load()
+{
+   int inx = 0;
+
+   puts("기업은행 가맹점 Data Load");
+   if (( fp=fopen( "/app/fund/fb/forte_edi/card_cmpn/giup.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,500,fp ) != NULL )
+      {
+          strncpy(chck,&buffer[0],2);
+          strncpy(divs,&buffer[2],1);
+                puts(chck);
+                puts(divs);
+          /*** data부면서 가맹점등록or 입금정보변경 or 거래정지해제경우 ***/
+          if (strncmp(chck, "2D", 2) == 0 && ( strncmp(divs, "1", 1) == 0 || strncmp(divs, "2", 1   ) == 0 || strncmp(divs, "4", 1) == 0  ) ) 
+          {
+                inx = inx + 1;
+                strncpy(hv_cmpn_num, &buffer[13], 10); /*사업자 번호 */
+                strncpy(hv_join_store_num, &buffer[3], 10); /*가맹점번호*/
+                strncpy(hv_cmpn_name, &buffer[67], 42);
+                strncpy(hv_reg_date, &buffer[110], 8); /*신규일자*/
+
+                printf("%dth Data Processing 가맹점 : /%s/, /%s/, /%s/, /%s/ Insert!!\n", inx, hv_cmpn_num, hv_cmpn_name, hv_join_store_num, hv_reg_date);
+                EXEC SQL
+                     INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          
+                                    CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'G',                RTRIM(LTRIM(:hv_cmpn_num)),    
+                                    SUBSTRB(TRIM(:hv_cmpn_name),1,30),
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            :hv_reg_date
+                                  );
+
+                if(SQLCODE == SQL_DUP)
+                {
+                    printf("%dth Data Delete 가맹점 : %s!!\n", inx, hv_join_store_num);
+                    EXEC SQL
+                         DELETE FROM JATB407
+                         WHERE  CARD_BANK = 'G'
+                         AND    CMPN_NUM = RTRIM(LTRIM(:hv_cmpn_num));
+
+                   if(SQLCODE != SQL_OK)
+                    {
+                        printf("기업은행 거래처 : cmpn_num : %s Delete error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                      ( CARD_BANK,          CMPN_NUM,          
+                                        CMPN_NAME,
+                                        JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                        UPD_DATE,           REG_DATE
+                                      )
+                               VALUES ( 'G',    RTRIM(LTRIM(:hv_cmpn_num)),    
+                                        SUBSTRB( TRIM(:hv_cmpn_name), 1, 30),
+                                        RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                        SYSDATE,            :hv_reg_date
+                                      );
+
+           printf("기업은행 거래처 delete 후 insert ");
+                    if(SQLCODE != SQL_OK)
+                    {
+                        printf("기업은행 거래처 : cmpn_num : %s Insert2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                    printf("기업은행 거래처 : cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+                EXEC SQL UPDATE PMVT001
+                         SET    LGCARD = 'Y'
+                         WHERE  BSCD   = RTRIM(LTRIM(:hv_cmpn_num));
+
+               if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                    printf("기업은행 PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+            }
+            /*해지의 경우(거래정지등록,가맹점해지)*/
+            else if (strncmp(chck, "2D", 2) == 0 && ( strncmp(divs, "3", 1) == 0 || strncmp(divs, "5", 1) == 0) )
+            {
+                EXEC SQL UPDATE JATB407
+                         SET    USE_DIVS = 'N',
+                                UPD_DATE = SYSDATE
+                         WHERE  CARD_BANK = 'G'
+                         AND    CMPN_NUM = RTRIM(LTRIM(:hv_cmpn_num));
+
+                if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                   printf("기업은행 거래처 : cmpn_num : %s update error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                   close(fp);
+                   EXEC SQL ROLLBACK WORK;
+                   return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/forte_edi/card_cmpn/giup_cmpn_back.sh");
+
+    }
+    else
+    {
+        printf("File Open Error : giup.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}

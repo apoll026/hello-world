@@ -1,0 +1,168 @@
+/**********************************************************/
+/* 화  일  명 : PC_XTCP_MAKE                              */
+/* 작  성  일 : 2005.10.19                                */
+/* 작  성  자 : 신영호                                    */
+/* 최종수정일 :                                           */
+/**********************************************************/
+/* 내      용 : EDI자료 LIST                              */
+/* 사용 TABLE :                                           */
+/* 사용MODULE :                                           */
+/* PARAMETER  :                                           */
+/*                                                        */
+/**********************************************************/
+#include <stdio.h>
+#include <math.h> 
+#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
+char *getenv();
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+
+EXEC SQL BEGIN DECLARE SECTION;
+   char    *uid = "fa/suioe9z@DBSTD24";	
+   static  varchar user_name[20 + 1];          /* USER NAME */
+   static  varchar password[20 + 1];           /* PASSWORD  */
+   
+   static  char hv_dmnd_date[8 + 1];  
+   static  char hv_sysdate[6 + 1];  
+   static  char hv_chb_cnt[5 + 1];  
+   static  char hv_chb_sum[12 + 1];  
+   static  int  hv_len;
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+   
+int main( int agrc, char **agrv )
+{
+   int ii;
+   int j;
+   int iii;
+   
+   FILE *fp1;
+   FILE *fp2;
+   char lst_buf[256 + 1];
+   char file_buf[256 + 1];
+   
+   EXEC SQL CONNECT :uid;
+      
+   /*현재일자*/
+   EXEC SQL SELECT TO_CHAR(SYSDATE,'yyyymm')
+              INTO :hv_sysdate
+              FROM DUAL;
+
+   /* 파일 Open */
+   if ((fp1=fopen("/app/acct/fb/card/card_use_lg/XTCPLST.SCR","w"))==NULL)
+   {
+      printf("Can't open error\n");
+      exit(1);
+   }
+
+   /* 화일 생성 */
+   for(iii=0;;iii++){
+     /*처음 자료이면 표제부 만든다*/
+     if (iii == 1)  
+     {
+         strcpy(lst_buf,"\"xmsgusr\" # user group.");
+         lst_buf[22] = '\n';   
+         lst_buf[23] = '\0';   
+         printf("%s\n",lst_buf); 
+         fputs(lst_buf,fp1);
+     }
+     else if (iii == 2)
+     {
+         strcpy(lst_buf,"\"FBLDC000\",\"CONR\" # my id and passwd.");
+         lst_buf[34] = '\n';   
+         lst_buf[35] = '\0';   
+         printf("%s\n",lst_buf); 
+         fputs(lst_buf,fp1);
+     } 
+     else if (iii == 3)
+     {
+         strcpy(lst_buf,"\"xmlstmsg -m:");
+         strncat(lst_buf,hv_sysdate,6);
+         strncat(lst_buf,"* -p:ITCP/IP\" # send Command Line.",35);
+         lst_buf[53] = '\n';   
+         lst_buf[54] = '\0';   
+         printf("%s\n",lst_buf); 
+         fputs(lst_buf,fp1);
+     } 
+     else if (iii == 4)
+     {
+         strcpy(lst_buf,"\"TCP/IP\",\"./lst\" # receive file path.");
+         lst_buf[37] = '\n';   
+         lst_buf[38] = '\0';   
+         printf("%s\n",lst_buf); 
+         fputs(lst_buf,fp1);
+         break;
+     } 
+
+
+   }  
+   printf("화일생성,...\n");
+   /*******************************************************************/
+   /*종료부                                                           */
+   /*******************************************************************/ 
+   close(fp1);
+
+   /* 파일 Open */
+   if ((fp2=fopen("/app/fund/fb/forte_edi/XTCPSUM.SCR","w"))==NULL)
+   {
+      printf("Can't open error\n");
+      exit(1);
+   }
+
+   /* 화일 생성 */
+   for(iii=0;;iii++){
+     /*처음 자료이면 표제부 만든다*/
+     if (iii == 1)  
+     {
+         strcpy(file_buf,"\"xmsgusr\" # user group.");
+         file_buf[22] = '\n';   
+         file_buf[23] = '\0';   
+         printf("%s\n",file_buf); 
+         fputs(file_buf,fp2);
+     }
+     else if (iii == 2)
+     {
+         strcpy(file_buf,"\"FBLDC000\",\"CONR\" # my id and passwd.");
+         file_buf[34] = '\n';   
+         file_buf[35] = '\0';   
+         printf("%s\n",file_buf); 
+         fputs(file_buf,fp2);
+     } 
+     else if (iii == 3)
+     {
+         strcpy(file_buf,"\"xmsummsg -m:");
+         strncat(file_buf,hv_sysdate,6);
+         strncat(file_buf,"* -p:ITCP/IP\" # send Command Line.",35);
+         file_buf[53] = '\n';   
+         file_buf[54] = '\0';   
+         printf("%s\n",file_buf); 
+         fputs(file_buf,fp2);
+     } 
+     else if (iii == 4)
+     {
+         strcpy(file_buf,"\"TCP/IP\",\"./sum\" # receive file path.");
+         file_buf[37] = '\n';   
+         file_buf[38] = '\0';   
+         printf("%s\n",file_buf); 
+         fputs(file_buf,fp2);
+         break;
+     } 
+
+
+   }  
+
+   printf("화일생성,...\n");
+   /*******************************************************************/
+   /*종료부                                                           */
+   /*******************************************************************/ 
+   close(fp2);
+   /*종료*/ 
+   return SUCCESS;
+}

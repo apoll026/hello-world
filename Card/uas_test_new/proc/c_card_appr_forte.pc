@@ -1,0 +1,889 @@
+/**********************************************************/
+/* 화  일  명 : c_card_appr_forte.pc                     */
+/* 작  성  일 : 2001.06.12                                */
+/* 최종수정일 :                                           */
+/**********************************************************/
+/* 내      용 : 구매카드 결과 --> jatb101, jatb204 update */
+/* 사용 TABLE :                                           */
+/* 사용MODULE :                                           */
+/* PARAMETER  :  forte에서 실행하는걸루 변경              */
+/**********************************************************/
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
+char *getenv();
+
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+
+typedef int bool;
+typedef char asciiz[100];
+
+int l_appr_update();       /* LG캐피탈 */
+int s_appr_update();       /* 신한은행 */
+int k_appr_update();       /* 국민은행 */
+int n_appr_update();       /* 농협 */
+int w_appr_update();       /* 우리은행 */
+int j_appr_update();       /* 제일은행 */
+int c_appr_update();       /* 조흥은행 */
+
+
+/* host variable definition */
+EXEC SQL BEGIN DECLARE SECTION;
+EXEC SQL TYPE asciiz IS STRING(100) REFERENCE;
+char    *uid = "ja/j7bhjd2@DBSTD99";	
+static char chck[3];
+static asciiz hv_card_num;
+static asciiz hv_appr_num;
+static asciiz hv_err_code;
+static char hv_appr_date[8+1];
+
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+FILE *fp;
+
+char buffer[500 + 1];
+char card_bank[1 + 1];
+
+int main( int agrc, char **agrv )
+{
+   strcpy(card_bank,agrv[1]);
+
+   if (agrc == 3 )
+   {
+      strcpy(hv_appr_date,agrv[2]);
+   }
+
+   if ( strlen(hv_appr_date) == 0 )
+   {
+       EXEC SQL
+            SELECT TO_CHAR(SYSDATE,'YYYYMMDD')
+            INTO   :hv_appr_date
+            FROM   DUAL;
+   }
+   
+
+   /* DB connetion */
+   EXEC SQL CONNECT :uid;
+
+   if (strncmp(card_bank, "L", 1) == 0 )
+   {
+       if ( l_appr_update() == FAILURE )
+       {
+           printf("LG캐피탈 결과 파일 update 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("LG캐피탈 결과 파일 update 성공\n");
+   }
+   else if (strncmp(card_bank, "S", 1) == 0 )
+   {
+       if ( s_appr_update() == FAILURE )
+       {
+           printf("신한은행 결과 파일 update 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("신한은행 결과 파일 update 성공\n");
+   }
+   else if (strncmp(card_bank, "K", 1) == 0 )
+   {
+       if ( k_appr_update() == FAILURE )
+       {
+           printf("국민은행 결과 파일 update 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("국민은행 결과 파일 update 성공\n");
+   }
+   else if (strncmp(card_bank, "N", 1) == 0 )
+   {
+       if ( n_appr_update() == FAILURE )
+       {
+           printf("농협 결과 파일 update 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("농협 결과 파일 update 성공\n");
+   }
+
+   else if (strncmp(card_bank, "W", 1) == 0 )
+   {
+       if ( w_appr_update() == FAILURE )
+       {
+           printf("우리은행 결과 파일 update 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("우리은행 결과 파일 update 성공\n");
+   }
+
+   else if (strncmp(card_bank, "J", 1) == 0 )
+   {
+       if ( j_appr_update() == FAILURE )
+       {
+           printf("제일은행 결과 파일 update 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("제일은행 결과 파일 update 성공\n");
+   }
+   else if (strncmp(card_bank, "G", 1) == 0 )
+   {
+       if ( giup_appr_update() == FAILURE )
+       {
+           printf("기업은행 결과 파일 update 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("기업은행 결과 파일 update 성공\n");
+   }
+   else if (strncmp(card_bank, "C", 1) == 0 )
+   {
+       if ( c_appr_update() == FAILURE )
+       {
+           printf("조흥은행 결과 파일 update 실패\n");
+           return FAILURE;
+       }
+       else
+           printf("조흥은행 결과 파일 update 성공\n");
+   }
+
+   EXEC SQL COMMIT WORK;
+   return SUCCESS;
+}
+
+/* LG캐피탈 결과 파일 update */
+int l_appr_update()
+{
+    int inx = 0;
+
+    puts("LG캐피탈 결과 파일 update");
+    if (( fp=fopen( "/app/fund/fb/forte_edi/card_resu/rlgc.dat","r" )) != NULL )
+    {
+        while ( fgets( buffer,500,fp ) != NULL )
+        {
+            strncpy(chck,&buffer[0],1);
+            if (strncmp(chck, "D", 1) == 0)
+            {
+                strncpy(hv_card_num, &buffer[106],8);
+                strncpy(hv_appr_num, &buffer[91],10);
+                strncpy(hv_err_code, &buffer[101],4);
+                puts(hv_card_num);
+                puts(hv_appr_num);
+                puts(hv_err_code);
+
+                inx = inx + 1; 
+                printf("[LG캐피탈] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+                EXEC SQL
+                        UPDATE JATB101
+                        SET    APPR_NUM      = :hv_appr_num
+                        ,      CARD_ERR_CODE = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  CHCK_DRFT_NUM = :hv_card_num;
+
+                if(SQLCODE == SQL_NO_DATA)
+                {
+                    EXEC SQL
+                            UPDATE JATB211_O
+                            SET    APPR_NUM      = :hv_appr_num
+                            ,      CARD_ERR_CODE = :hv_err_code
+                            ,      APPR_DATE      = :hv_appr_date
+/*
+                            ,      appr_date     = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                            WHERE  CHCK_DRFT_NUM = :hv_card_num;
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("LG캐피탈 어음번호 : %s Jatb211_o Update error : %d\n",
+                                hv_card_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK)
+                {    
+                    printf("LG캐피탈 어음번호 : %s Jatb101 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+                EXEC SQL
+                        UPDATE JATB204
+                        SET    APPR_NUM       = :hv_appr_num
+                        ,      CARD_ERR_CODE  = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  DRFT_CHCK_DIVS = '99'
+                        AND    DRFT_CHCK_NUM = :hv_card_num;
+                if(SQLCODE != SQL_OK)
+                {
+                    printf("LG캐피탈 어음번호 : %s Jatb204 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/card/l_back.sh");
+        system("sh /app/fund/fb/forte_edi/card_resu/lgc_return_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : rlgc.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+/* 신한은행 결과 파일 update */
+int s_appr_update()
+{
+    int inx = 0;
+
+    puts("신한은행 결과 파일 update");
+    if (( fp=fopen( "/app/fund/fb/forte_edi/card_resu/rshb.dat","r" )) != NULL )
+    {
+        while ( fgets( buffer,500,fp ) != NULL )
+        {
+            strncpy(chck,&buffer[0],2);
+            if (strncmp(chck, "20", 2) == 0)
+            {
+                strncpy(hv_card_num, &buffer[18],8);
+                strncpy(hv_err_code, &buffer[170],4);
+
+                if (strncmp(hv_err_code, "0000", 4) == 0)
+                    strncpy(hv_appr_num, &buffer[18],8);
+                else
+                    strncpy(hv_appr_num, &buffer[18],8);
+                    /*strcpy(hv_appr_num, "");*/
+  
+                puts(hv_card_num);
+                puts(hv_appr_num);
+                puts(hv_err_code);
+                inx = inx + 1; 
+                printf("[신한은행] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+                EXEC SQL
+                        UPDATE JATB101
+                        SET    APPR_NUM      = :hv_appr_num
+                        ,      CARD_ERR_CODE = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  CHCK_DRFT_NUM = :hv_card_num;
+
+                if(SQLCODE == SQL_NO_DATA)
+                {
+                    EXEC SQL
+                            UPDATE JATB211_O
+                            SET    APPR_NUM      = :hv_appr_num
+                            ,      CARD_ERR_CODE = :hv_err_code
+                            ,      APPR_DATE      = :hv_appr_date
+/*
+                            ,      appr_date     = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                            WHERE  CHCK_DRFT_NUM = :hv_card_num;
+
+                    if(SQLCODE != SQL_OK)
+                    {
+                        printf("신한은행 어음번호 : %s Jatb211_o Update error : %d\n",
+                                hv_card_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK)
+                {    
+                    printf("신한은행 어음번호 : %s Jatb101 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+                EXEC SQL
+                        UPDATE JATB204
+                        SET    APPR_NUM       = :hv_appr_num
+                        ,      CARD_ERR_CODE  = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  DRFT_CHCK_DIVS = '99'
+                        AND    DRFT_CHCK_NUM = :hv_card_num;
+                if(SQLCODE != SQL_OK)
+                {
+                    printf("신한은행 어음번호 : %s Jatb204 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/card/s_back.sh");
+        system("sh /app/fund/fb/forte_edi/card_resu/shb_return_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : rshb.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+/* 국민은행 결과 파일 update */
+int k_appr_update()
+{
+    int inx = 0;
+
+    puts("국민은행 결과 파일 update");
+    if (( fp=fopen( "/app/fund/fb/forte_edi/card_resu/rkmb.dat","r" )) != NULL )
+    {
+        printf("appr_date : %s\n", hv_appr_date);
+
+        while ( fgets( buffer,500,fp ) != NULL )
+        {
+            strncpy(chck,&buffer[0],2);
+            if (strncmp(chck, "2D", 2) == 0)
+            {
+                strncpy(hv_card_num, &buffer[71],8);
+                strncpy(hv_appr_num, &buffer[71],8);  
+                strncpy(hv_err_code, &buffer[99], 3);
+                puts(hv_card_num);
+                puts(hv_err_code);
+
+                inx = inx + 1; 
+                printf("[국민은행] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+                EXEC SQL
+                        UPDATE JATB101
+                        SET    APPR_NUM      = NVL( :hv_appr_num, '00000000' )
+                        ,      CARD_ERR_CODE = :hv_err_code
+                        ,      APPR_DATE     = NVL( :hv_appr_date, TO_CHAR(SYSDATE, 'YYYYMMDD'))
+                        WHERE  CHCK_DRFT_NUM = :hv_card_num;
+
+                if(SQLCODE == SQL_NO_DATA)
+                {
+                    EXEC SQL
+                            UPDATE JATB211_O
+                            SET    APPR_NUM      =  NVL( :hv_appr_num, '00000000' )
+                            ,      CARD_ERR_CODE = :hv_err_code
+                            ,      APPR_DATE     = NVL( :hv_appr_date, TO_CHAR(SYSDATE, 'YYYYMMDD'))
+                            WHERE  CHCK_DRFT_NUM = :hv_card_num;
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("국민은행 어음번호 : %s Jatb211_o Update error : %d\n",
+                                hv_card_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK)
+                {    
+                    printf("국민은행 어음번호 : %s Jatb101 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+                EXEC SQL
+                        UPDATE JATB204
+                        SET    APPR_NUM       = :hv_appr_num
+                        ,      CARD_ERR_CODE  = :hv_err_code
+                        ,      APPR_DATE     = NVL( :hv_appr_date, TO_CHAR(SYSDATE, 'YYYYMMDD'))
+                        WHERE  DRFT_CHCK_DIVS = '99'
+                        AND    DRFT_CHCK_NUM = :hv_card_num;
+                if(SQLCODE != SQL_OK)
+                {
+                    printf("국민은행 어음번호 : %s Jatb204 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/card/kmb_back.sh");
+        system("sh /app/fund/fb/forte_edi/card_resu/kmb_return_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : rkmb.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+/* 농협 결과 파일 update */
+int n_appr_update()
+{
+    int inx = 0;
+
+    puts("농협 결과 파일 update");
+    if (( fp=fopen( "/app/fund/fb/forte_edi/card_resu/rnhc.dat","r" )) != NULL )
+    {
+        while ( fgets( buffer,500,fp ) != NULL )
+        {
+            strncpy(chck,&buffer[0],2);
+            if (strncmp(chck, "2B", 2) == 0)
+            {
+                strncpy(hv_card_num, &buffer[133],8);
+                strncpy(hv_appr_num, &buffer[173],8);
+                strncpy(hv_err_code, &buffer[197],3);
+                puts(hv_card_num);
+                puts(hv_appr_num);
+                puts(hv_err_code);
+
+                inx = inx + 1; 
+                printf("[농협] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+                EXEC SQL
+                        UPDATE JATB101
+                        SET    APPR_NUM      = :hv_appr_num
+                        ,      CARD_ERR_CODE = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  CHCK_DRFT_NUM = :hv_card_num;
+
+                if(SQLCODE == SQL_NO_DATA)
+                {
+                    EXEC SQL
+                            UPDATE JATB211_O
+                            SET    APPR_NUM      = :hv_appr_num
+                            ,      CARD_ERR_CODE = :hv_err_code
+                            ,      APPR_DATE      = :hv_appr_date
+/*
+                            ,      appr_date     = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                            WHERE  CHCK_DRFT_NUM = :hv_card_num;
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("농협 어음번호 : %s Jatb211_o Update error : %d\n",
+                                hv_card_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK)
+                {    
+                    printf("농협 어음번호 : %s Jatb101 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+                EXEC SQL
+                        UPDATE JATB204
+                        SET    APPR_NUM       = :hv_appr_num
+                        ,      CARD_ERR_CODE  = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  DRFT_CHCK_DIVS = '99'
+                        AND    DRFT_CHCK_NUM = :hv_card_num;
+                if(SQLCODE != SQL_OK)
+                {
+                    printf("농협 어음번호 : %s Jatb204 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/card/n_back.sh");
+        system("sh /app/fund/fb/forte_edi/card_resu/nhc_return_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : rnhc.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+/* 우리은행 결과 파일 update */
+int w_appr_update()
+{
+    int inx = 0;
+
+    puts("우리은행 결과 파일 update");
+    if (( fp=fopen( "/app/fund/fb/forte_edi/card_resu/rwbc.dat","r" )) != NULL )
+    {
+        while ( fgets( buffer,500,fp ) != NULL )
+        {
+            strncpy(chck,&buffer[0],2);
+            if (strncmp(chck, "20", 2) == 0)
+            {
+                strncpy(hv_card_num, &buffer[10],8);
+                strncpy(hv_err_code, &buffer[90],4);
+                puts(hv_card_num);
+                puts(hv_err_code);
+
+                inx = inx + 1; 
+                printf("[우리은행] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+                EXEC SQL
+                        UPDATE JATB101
+                        SET    APPR_NUM      = '00000000' 
+                        ,      CARD_ERR_CODE = :hv_err_code 
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  CHCK_DRFT_NUM = :hv_card_num;
+
+                if(SQLCODE == SQL_NO_DATA)
+                {
+                    EXEC SQL
+                            UPDATE JATB211_O
+                            SET    APPR_NUM      = '00000000' 
+                            ,      CARD_ERR_CODE = :hv_err_code 
+                            ,      APPR_DATE      = :hv_appr_date
+/*
+                            ,      appr_date     = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                            WHERE  CHCK_DRFT_NUM = :hv_card_num;
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("우리은행 어음번호 : %s Jatb211_o Update error : %d\n",
+                                hv_card_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK)
+                {    
+                    printf("우리은행 어음번호 : %s Jatb101 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+                EXEC SQL
+                        UPDATE JATB204
+                        SET    APPR_NUM       = '00000000' 
+                        ,      CARD_ERR_CODE  = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  DRFT_CHCK_DIVS = '99'
+                        AND    DRFT_CHCK_NUM = :hv_card_num;
+                if(SQLCODE != SQL_OK)
+                {
+                    printf("우리은행 어음번호 : %s Jatb204 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/card/w_back.sh");
+        system("sh /app/fund/fb/forte_edi/card_resu/wbc_return_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : rwbc.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+/*  제일은행 결과 파일 update */
+int j_appr_update()
+{
+    int inx = 0;
+
+    puts("제일은행 결과 파일 update");
+    if (( fp=fopen( "/app/fund/fb/forte_edi/card_resu/rjib.dat","r" )) != NULL )
+    {
+        while ( fgets( buffer,500,fp ) != NULL )
+        {
+            strncpy(chck,&buffer[0],1);
+            if (strncmp(chck, "D", 1) == 0)
+            {
+                strncpy(hv_card_num, &buffer[109],8);
+                strncpy(hv_appr_num, &buffer[163],10);
+                strncpy(hv_err_code, &buffer[159],4);
+                puts(hv_card_num);
+                puts(hv_appr_num);
+                puts(hv_err_code);
+
+                inx = inx + 1; 
+                printf("[제일은행] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+                EXEC SQL
+                        UPDATE JATB101
+                        SET    APPR_NUM      = :hv_appr_num
+                        ,      CARD_ERR_CODE = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  CHCK_DRFT_NUM = :hv_card_num;
+
+                if(SQLCODE == SQL_NO_DATA)
+                {
+                    EXEC SQL
+                            UPDATE JATB211_O
+                            SET    APPR_NUM      = :hv_appr_num
+                            ,      CARD_ERR_CODE = :hv_err_code
+                            ,      APPR_DATE      = :hv_appr_date
+/*
+                            ,      appr_date     = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                            WHERE  CHCK_DRFT_NUM = :hv_card_num;
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("제일은행 구매카드번호 : %s Jatb211_o Update error : %d\n",
+                                hv_card_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK)
+                {    
+                    printf("제일은행 구매카드번호 : %s Jatb101 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+                EXEC SQL
+                        UPDATE JATB204
+                        SET    APPR_NUM       = :hv_appr_num
+                        ,      CARD_ERR_CODE  = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+/*
+                        ,      APPR_DATE      = TO_CHAR(SYSDATE,'YYYYMMDD')
+*/
+                        WHERE  DRFT_CHCK_DIVS = '99'
+                        AND    DRFT_CHCK_NUM = :hv_card_num;
+                if(SQLCODE != SQL_OK)
+                {
+                    printf("제일은행 구매카드번호 : %s Jatb204 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/card/j_back.sh");
+        system("sh /app/fund/fb/forte_edi/card_resu/jib_return_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : rjib.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+/* 기업은행 결과 파일 update */
+int giup_appr_update()
+{
+    int inx = 0;
+
+    puts("기업은행 결과 파일 update");
+    if (( fp=fopen( "/app/fund/fb/forte_edi/card_resu/rgiup.dat","r" )) != NULL )
+    {
+        while ( fgets( buffer,500,fp ) != NULL )
+        {
+  printf("[기업은행] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+            strncpy(chck,&buffer[0],2);
+            if (strncmp(chck, "2D", 2) == 0)
+            {
+                strncpy(hv_card_num, &buffer[71],12);
+                strncpy(hv_err_code, &buffer[99],3);
+
+                strncpy(hv_appr_num, "00000000",8);
+
+                puts(hv_card_num);
+                puts(hv_appr_num);
+                puts(hv_err_code);
+                inx = inx + 1; 
+                printf("[기업은행] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+                EXEC SQL
+                        UPDATE JATB101
+                        SET    APPR_NUM      = :hv_appr_num
+                        ,      CARD_ERR_CODE = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+                        WHERE  CHCK_DRFT_NUM = TRIM( :hv_card_num );
+
+                if(SQLCODE == SQL_NO_DATA)
+                {
+                    EXEC SQL
+                            UPDATE JATB211_O
+                            SET    APPR_NUM      = :hv_appr_num
+                            ,      CARD_ERR_CODE = :hv_err_code
+                            ,      APPR_DATE      = :hv_appr_date
+                            WHERE  CHCK_DRFT_NUM = TRIM( :hv_card_num );
+
+                    if(SQLCODE != SQL_OK)
+                    {
+                        printf("기업은행 어음번호 : %s Jatb211_o Update error : %d\n",
+                                hv_card_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK)
+                {    
+                    printf("기업은행 어음번호 : %s Jatb101 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+                EXEC SQL
+                        UPDATE JATB204
+                        SET    APPR_NUM       = :hv_appr_num
+                        ,      CARD_ERR_CODE  = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+                        WHERE  DRFT_CHCK_DIVS = '99'
+                        AND    DRFT_CHCK_NUM = TRIM( :hv_card_num );
+                if(SQLCODE != SQL_OK)
+                {
+                    printf("기업은행 어음번호 : %s Jatb204 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/card/giup_back.sh");
+        system("sh /app/fund/fb/forte_edi/card_resu/giup_return_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : rgiup.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+/* 조흥은행 결과 파일 update */
+int c_appr_update()
+{
+    int inx = 0;
+
+    puts("조흥은행 결과 파일 update");
+    if (( fp=fopen( "/app/fund/fb/forte_edi/card_resu/rchb.dat","r" )) != NULL )
+    {
+        while ( fgets( buffer,500,fp ) != NULL )
+        {
+  printf("[조흥은행] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+            strncpy(chck,&buffer[5],1);
+            if (strncmp(chck, "D", 1) == 0)
+            {
+                strncpy(hv_card_num, &buffer[160],20);    /*고객사용영역(카드번호)*/
+                strncpy(hv_err_code, &buffer[89],4);           /*응답코드*/
+              /*  strncpy(hv_appr_num, &buffer[93],12);*/
+                strncpy(hv_appr_num, &buffer[160],20);
+
+                puts(hv_card_num);
+                puts(hv_appr_num);
+                puts(hv_err_code);
+                inx = inx + 1; 
+                printf("[조흥은행] %dth Data 카드번호 : %s 결과 처리중...\n", inx, hv_card_num);
+                EXEC SQL
+                        UPDATE JATB101
+                        SET    APPR_NUM      = TRIM( :hv_appr_num )
+                        ,      CARD_ERR_CODE = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+                        WHERE  CHCK_DRFT_NUM = TRIM( :hv_card_num );   /*카드번호*/
+
+                if(SQLCODE == SQL_NO_DATA)
+                {
+                    EXEC SQL
+                            UPDATE JATB211_O
+                            SET    APPR_NUM      = TRIM( :hv_appr_num )
+                            ,      CARD_ERR_CODE = :hv_err_code
+                            ,      APPR_DATE      = :hv_appr_date
+                            WHERE  CHCK_DRFT_NUM = TRIM( :hv_card_num );
+
+                    if(SQLCODE != SQL_OK)
+                    {
+                        printf("조흥은행 어음번호 : %s Jatb211_o Update error : %d\n",
+                                hv_card_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK)
+                {    
+                    printf("조흥은행 어음번호 : %s Jatb101 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+                EXEC SQL
+                        UPDATE JATB204
+                        SET    APPR_NUM       = TRIM( :hv_appr_num )
+                        ,      CARD_ERR_CODE  = :hv_err_code
+                        ,      APPR_DATE      = :hv_appr_date
+                        WHERE  DRFT_CHCK_DIVS = '99'
+                        AND    DRFT_CHCK_NUM = TRIM( :hv_card_num );
+                if(SQLCODE != SQL_OK)
+                {
+                    printf("조흥은행 어음번호 : %s Jatb204 Update error : %d\n",
+                            hv_card_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/card/c_back.sh");
+        system("sh /app/fund/fb/forte_edi/card_resu/chb_return_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : rchb.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+

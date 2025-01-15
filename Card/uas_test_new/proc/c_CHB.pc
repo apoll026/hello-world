@@ -1,0 +1,316 @@
+/**********************************************************/
+/* 화  일  명 : c_2500_060.pc                             */
+/* 작  성  일 : 1997.10.02                                */
+/* 작  성  자 : 자금정보팀 주경일(PlusJoo)                */
+/* 최종수정일 :                                           */
+/**********************************************************/
+/* 내      용 : FB자료로 당좌거래내역 생성, 일중잔액 생성 */
+/* 사용 TABLE :                                           */
+/* 사용MODULE :                                           */
+/* PARAMETER  :                                           */
+/**********************************************************/
+
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
+char *getenv();
+
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+#define SQL_DUP      -1 
+
+EXEC SQL BEGIN DECLARE SECTION;
+   static  varchar user_name[20+1];         
+   static  varchar password[20+1];          
+
+   static  varchar hv_acnt_num[20+1];      /* 계좌번호       */ 
+   static  varchar hv_trns_date[8+1];      /* 거래일자       */ 
+   static  varchar hv_in_out_divs[1+1];    /* 입출구분       */ 
+   static  double  hv_amt;               /* 금액           */
+   static  varchar hv_chck_num[10+1];      /* 수표번호       */ 
+   static  double  hv_remd;              /* 자액           */
+   static  varchar hv_jata_divs[2+1];      /* 자점/타점 구분 */ 
+   static  varchar hv_etc_data[20+1];      /* 입금내역       */ 
+   static  varchar hv_proc_date[8+1];      /* 처리일자       */ 
+   static  varchar hv_trns_divs[3];      /* 거래구분코드 */
+   static  varchar hv_send_bank[5 + 1];    /* 송금은행 */
+   static  int     hv_cnt;    
+   static  int     hv_seq;    
+
+   /* 당좌일잔액(jatb505)생성시 사용될 변수 */
+   static  double  hv_begn_remd;         /* 개시잔액 */
+   static  double  hv_date_maxm_remd;    /* 일중 최고액 */
+   static  double  hv_fnsh_remd;         /* 마감잔액 */ 
+   static  double  hv_over_drft_amt;     /* 당좌차월금액 */ 
+   static  double  hv_tmp_amt; 
+
+
+   char   *uid = "ja/j7bhjd2@DBSTD99";
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+int main(int agrc, char *agrv[])
+{
+   /* 거래일자를 입력받는다 */
+   int ii;
+   VCHINIT(hv_proc_date);
+
+   strcpy(hv_proc_date.arr,agrv[1]);
+   hv_proc_date.len = strlen(hv_proc_date.arr);
+
+   EXEC SQL CONNECT :uid;
+
+   /* 당좌거래내역 table delete */ 
+   EXEC SQL DELETE FROM JATB506
+            WHERE  CURT_DATE          =  :hv_proc_date
+            AND    BUSI_DIVS          =  '5000'
+            AND    DBIT_CRED_DIVS     =  '1'
+	    AND    ACNT_NUM	      =  '327-07-000911'
+            AND    NVL(PROC_YN,'X')   != 'Y';
+
+   if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+      printf("jatb506 delete error : %d\n",sqlca.sqlcode);
+      return FAILURE;
+   }
+
+   /* 당좌거래내역 update */ 
+   EXEC SQL UPDATE JATB506 SET 
+                           PROC_YN   = '',
+                           DFRY_DATE = '',
+                           BUSI_DIVS = ''
+            WHERE  CURT_DATE          = :hv_proc_date
+            AND    BUSI_DIVS          = '5000'
+	    AND    ACNT_NUM	      =  '327-07-000911'
+            AND    DBIT_CRED_DIVS     = '2'
+            AND    NVL(PROC_YN,'X')   != 'Y';
+
+   if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+      printf("jatb506 update error : %d\n",sqlca.sqlcode);
+      return FAILURE;
+   }
+
+   /* FB자료 select */
+   EXEC SQL DECLARE CURS1 CURSOR FOR
+            SELECT NVL(TRNS_DATE,' '), NVL(SEQ,0),
+                   NVL(IN_OUT_DIVS,' '), NVL(AMT,0),         NVL(CHCK_NUM,' '),
+                   NVL(REMD,0),          NVL(JATA_DIVS,' '), NVL(ETC_DATA,' '),
+                   NVL( TRNS_DIVS, ' '), NVL(SEND_BANK, ' ')
+            FROM   JATB508
+            WHERE  TRNS_DATE = :hv_proc_date
+	    AND    ACNT_NUM  =  '327-07-000911';
+                      
+   EXEC SQL OPEN CURS1;
+
+   /* 당일 개시잔액 SELECT */ 
+   EXEC SQL SELECT NVL(REMD,0)
+            INTO   :hv_begn_remd
+            FROM   JATB508
+            WHERE  ACNT_NUM = '327-07-000911'
+            AND    TRNS_DATE = TO_CHAR((TO_DATE(:hv_proc_date,'YYYYMMDD')\
+                                  - 1),'YYYYMMDD')
+            AND    SEQ = (SELECT MAX(SEQ)
+                          FROM   JATB508
+       		          WHERE  ACNT_NUM = '327-07-000911'
+                          AND    TRNS_DATE = TO_CHAR((TO_DATE\
+                          (:hv_proc_date,'YYYYMMDD') - 1),'YYYYMMDD'));
+
+    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+            printf("BEGN_REMD SELECT ERROR : %d\n",sqlca.sqlcode);
+            EXEC SQL CLOSE CURS1;
+            return FAILURE;
+    }
+
+    /* 당일 최고잔액 SELECT */ 
+    EXEC SQL SELECT NVL(MIN(REMD),0)
+              INTO   :hv_date_maxm_remd
+                FROM   JATB508
+                WHERE  ACNT_NUM = '327-07-000911'
+                AND    TRNS_DATE = :hv_proc_date;
+
+    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+           printf("DATE_MAXM_REMD SELECT ERROR : %d\n",sqlca.sqlcode);
+            EXEC SQL CLOSE CURS1;
+            return FAILURE;
+     }
+
+    /* 당일 마감잔액 SELECT */ 
+    EXEC SQL SELECT NVL(REMD,0)
+             INTO   :hv_fnsh_remd
+             FROM   JATB508
+             WHERE  ACNT_NUM = '327-07-000911'
+             AND    TRNS_DATE = :hv_trns_date
+             AND    SEQ = (SELECT MAX(SEQ)
+                           FROM   JATB508
+              	      WHERE  ACNT_NUM = '327-07-000911'
+                           AND    TRNS_DATE = :hv_proc_date);
+
+    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+           printf("FNSH_DATE SELECT ERROR : %d\n",sqlca.sqlcode);
+            EXEC SQL CLOSE CURS1;
+            return FAILURE;
+    }
+ 
+    /* 당좌차월금액 = 마감잔액 + (개시잔액과 마감잔액중 큰금액) */ 
+    if (hv_begn_remd > hv_fnsh_remd) {
+           hv_tmp_amt = hv_date_maxm_remd - hv_begn_remd; 
+    } else {
+           hv_tmp_amt = hv_date_maxm_remd - hv_fnsh_remd; 
+    }
+
+    if (hv_tmp_amt < 0) {
+            hv_tmp_amt = 0;
+    }
+
+    hv_over_drft_amt = hv_fnsh_remd + hv_tmp_amt;
+
+    /* 당일잔액 INSERT */ 
+    EXEC SQL INSERT INTO JATB505(CURT_ACNT_NUM, 
+                                    CURT_DATE, 
+                                    BEGN_REMD,
+                                    DATE_MAXM_REMD,
+                                    FNSH_REMD,
+                                    OVER_DRFT_AMT,
+                                    UPD_DATE)
+                         VALUES( '327-07-000911',
+                                :hv_proc_date,
+                                :hv_begn_remd,
+                                :hv_date_maxm_remd,
+                                :hv_fnsh_remd,
+                                :hv_over_drft_amt,
+                                sysdate);
+
+    if(SQLCODE == SQL_DUP)
+    {
+            EXEC SQL UPDATE JATB505 SET
+                     BEGN_REMD      = :hv_begn_remd,
+                     DATE_MAXM_REMD = :hv_date_maxm_remd,          
+                     FNSH_REMD      = :hv_fnsh_remd,
+                     OVER_DRFT_AMT  = :hv_over_drft_amt,
+                     UPD_DATE       = sysdate
+                 WHERE CURT_ACNT_NUM = '327-07-000911'
+                 AND   CURT_DATE     = :hv_proc_date;
+     }
+     else if(SQLCODE != SQL_OK ){
+	    printf("JATB505 INSERT ERROR : %d\n",sqlca.sqlcode); 
+	    EXEC SQL CLOSE CURS1;
+            return FAILURE;
+     }
+
+     for(ii=0;;ii++){
+
+      VCHINIT(hv_acnt_num);
+      VCHINIT(hv_trns_date);
+      VCHINIT(hv_in_out_divs);
+      VCHINIT(hv_chck_num);
+      VCHINIT(hv_jata_divs);
+      VCHINIT(hv_etc_data);
+      VCHINIT(hv_trns_divs);
+      hv_amt  = 0;
+      hv_remd = 0;
+      hv_seq  = 0;
+
+      EXEC SQL FETCH CURS1 INTO
+               :hv_trns_date,   :hv_seq, 
+               :hv_in_out_divs, :hv_amt,       :hv_chck_num, 
+               :hv_remd,        :hv_jata_divs, :hv_etc_data,
+               :hv_trns_divs,   :hv_send_bank;
+
+      if(SQLCODE == SQL_NO_DATA){
+         if (ii == 0){
+
+            printf("NO_DATA ERROR:%d\n",sqlca.sqlcode);
+            EXEC SQL CLOSE CURS1;
+            return FAILURE;
+         }
+         else{
+            break;
+         }
+
+      }
+      else if(SQLCODE != SQL_OK){
+
+         printf("NOT OK ERROR : %d\n",sqlca.sqlcode);
+         EXEC SQL CLOSE CURS1;
+         return FAILURE;
+
+      }
+
+      /* 입출금 구분이 입금일때 jatb506 table에 insert */
+      if (strcmp(hv_in_out_divs.arr,"1") == 0) {
+
+         hv_cnt = 0;
+         EXEC SQL SELECT MAX(TO_NUMBER(SEQ)) 
+                  INTO   :hv_cnt
+                  FROM   JATB506
+                  WHERE  ACNT_NUM = '327-07-000911'
+                  AND    CURT_DATE = :hv_trns_date; 
+
+         hv_cnt = hv_cnt + 1;
+
+         EXEC SQL INSERT INTO JATB506(ACNT_NUM,       
+                                      CURT_DATE, 
+                                      SEQ,            
+                                      DBIT_CRED_DIVS, 
+				      NOTE,
+                                      AMT,            
+                                      REMD_AMT, 
+                                      ETC,
+                                      BUSI_DIVS,
+                                      TDAY_TMRW_DIVS,
+                                      TRNS_DIVS,
+                                      SEND_BANK )
+                              VALUES( '327-07-000911',      
+                                     :hv_trns_date,
+                                     TO_CHAR(:hv_cnt),  
+                                     '1',
+				     :hv_etc_data,
+                                     :hv_amt,           
+                                     :hv_remd,
+                                     :hv_etc_data,
+                                     '5000',
+                                     :hv_jata_divs,
+                                     :hv_trns_divs,
+                                     :hv_send_bank );
+
+         if(SQLCODE != SQL_OK){
+
+            printf("JATB506 INSERT ERROR : %d\n",sqlca.sqlcode);
+            EXEC SQL CLOSE CURS1;
+            return FAILURE;
+
+         }
+
+      }
+
+      /* 입출금 구분이 출금일때 jatb506 table에 update */
+      if (strcmp(hv_in_out_divs.arr,"2") == 0) {
+
+         EXEC SQL UPDATE JATB506 SET DFRY_DATE = :hv_trns_date
+                         WHERE   CURT_DATE = :hv_proc_date
+                         AND     CHCK_NUM  = :hv_chck_num
+			 AND	 AMT       = :hv_amt; 
+
+         if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+
+            printf("JATB506 UPDATE ERROR : %d\n",sqlca.sqlcode);
+            EXEC SQL CLOSE CURS1;
+            return FAILURE;
+
+         }
+
+      }
+
+   }	
+
+   /* COMMIT */
+   EXEC SQL COMMIT WORK;
+   EXEC SQL CLOSE CURS1;
+   printf("거래내역 생성성공\n");
+   return SUCCESS;
+}

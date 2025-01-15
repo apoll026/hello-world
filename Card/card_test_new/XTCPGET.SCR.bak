@@ -1,0 +1,4 @@
+"xmsgusr" # user group
+"FBLDC001","CONR" # my id and pass
+   "xmgetmsg -o:FBLGC000  -t:LGUSEDATA -b:A -m:*  -p:ITCP/IP" # recv Command 
+"TCP/IP","./lgusedata.dat" # receive file path.

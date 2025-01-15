@@ -1,0 +1,942 @@
+/**********************************************************/
+/* 화  일  명 : c_bank_load.pc                            */
+/* 작  성  일 : 1997.09.22                                */
+/* 작  성  자 : 자금정보팀 주경일(PlusJoo)                */
+/* 최종수정일 :                                           */
+/**********************************************************/
+/* 내      용 : 은행자료 ---> jatb508                     */
+/* 사용 TABLE :                                           */
+/* 사용MODULE :                                           */
+/* PARAMETER  :                                           */
+/**********************************************************/
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
+char *getenv();
+
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+
+int hib_process();       /* 한일은행 */
+int kfb_process();       /* 제일은행 */
+int chb_process();       /* 조흥은행 */
+int keb_process();       /* 외환은행 */
+int nfa_process();       /* 농협     */
+
+/* host variable definition */
+EXEC SQL BEGIN DECLARE SECTION;
+       char    *uid = "ja/j7bhjd2@DBSTD99";	
+static varchar user_name[20 + 1];  
+static varchar password[20 + 1];  
+
+static varchar hv_acnt_num[20 + 1]; 
+static varchar hv_befr_acnt_num[20 + 1]; 
+static varchar hv_trns_date[8 + 1]; 
+static varchar hv_in_out_divs[1 + 1]; 
+static varchar hv_canc_divs[1 + 1]; 
+static varchar hv_amt[15 + 1]; 
+static varchar hv_chck_num[10 + 1]; 
+static varchar hv_remd[15 + 1]; 
+static varchar hv_jata_divs[2 + 1]; 
+static varchar hv_drft_chck_divs[2 + 1]; 
+static varchar hv_etc_data[22 + 1]; 
+static varchar hv_site_code[3 + 1]; 
+static varchar hv_send_bank[5 + 1]; 
+static char hv_trns_divs[3]; 
+static int     ii  = 0;
+static int     chk = 0;
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+FILE *fp;
+char buffer[256 + 1];
+char hib[50 + 1];
+char kfb[50 + 1];
+char chb[50 + 1];
+char keb[50 + 1];
+char nfa[50 + 1];
+int  hib_cnt = 0;
+int  kfb_cnt = 0;
+int  chb_cnt = 0;
+int  keb_cnt = 0;
+int  nfa_cnt = 0;
+
+int main( int agrc, char **agrv )
+{
+   strcpy(hib,agrv[1]);
+   strcpy(kfb,agrv[2]);
+   strcpy(chb,agrv[3]);
+   strcpy(keb,agrv[4]);
+   strcpy(nfa,agrv[5]);
+
+   /* DB connetion */
+   EXEC SQL CONNECT :uid;
+
+   if (hib_process() == FAILURE) {
+      printf("우리은행 FB data load 실패\n");
+      return FAILURE;
+   }
+   if (kfb_process() == FAILURE) {
+      printf("제일은행 FB data load 실패\n");
+      return FAILURE;
+   }
+   if (chb_process() == FAILURE) {
+      printf("조흥은행 FB data load 실패\n");
+      return FAILURE;
+   }
+   if (keb_process() == FAILURE) {
+      printf("외환은행 FB data load 실패\n");
+      return FAILURE;
+   }
+   if (nfa_process() == FAILURE) {
+      printf("농협 FB data load 실패\n");
+      return FAILURE;
+   }
+
+   EXEC SQL COMMIT WORK;
+   printf("Firm-Banking 자료 Load 성공\n");
+   return SUCCESS;
+}
+
+/* 우리(구 한일은행) FB data load */
+int hib_process()
+{
+   char chck;
+   char in_out[2 + 1];
+   char canc_divs[2 + 1];
+   char jata_divs[15 + 1];
+   ii = 0;
+
+   VCHINIT(hv_acnt_num);
+   VCHINIT(hv_trns_date);
+
+   if (( fp=fopen( hib,"r" )) != NULL )
+   {
+      while ( fgets( buffer,256,fp ) != NULL )
+      {
+         /* host variable 초기화 */
+         VCHINIT(hv_in_out_divs);
+         VCHINIT(hv_canc_divs);
+         VCHINIT(hv_amt);
+         VCHINIT(hv_chck_num);
+         VCHINIT(hv_remd);
+         VCHINIT(hv_jata_divs);
+         VCHINIT(hv_drft_chck_divs);
+         VCHINIT(hv_etc_data);
+
+	 chck = buffer[0]; 
+	 strncpy( in_out,     &buffer[3],   2 );
+	 strncpy( canc_divs,  &buffer[3],   2 );
+	 strncpy( jata_divs,  &buffer[30],  14);
+         jata_divs[14] = '\0';
+
+         /* head check */
+         if ( chck == 'H' )
+         {
+	    strncpy( hv_acnt_num.arr,   &buffer[7],   14 );
+	    strncpy( hv_trns_date.arr,  &buffer[21],  6  );
+            hv_acnt_num.len  = strlen(hv_acnt_num.arr);
+            hv_trns_date.len = strlen(hv_trns_date.arr);
+         }
+         /* data check */
+         if ( chck == 'D' )  
+         {
+            ii = ii + 1;
+
+            /* 입/출구분 check */
+            if ((strcmp(in_out, "10") == 0) ||
+                (strcmp(in_out, "20") == 0) ||
+                (strcmp(in_out, "13") == 0) ||
+                (strcmp(in_out, "14") == 0) ||
+                (strcmp(in_out, "15") == 0) ||
+                (strcmp(in_out, "16") == 0) ||
+                (strcmp(in_out, "17") == 0)) 
+            {
+               strcpy(hv_in_out_divs.arr,"1");
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+  
+            } 
+	    else 
+	    {
+               strcpy(hv_in_out_divs.arr,"2");
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+            }
+
+            /* 취소구분 check */
+            if ((strcmp(canc_divs, "14") == 0) ||
+                (strcmp(canc_divs, "24") == 0) ||
+                (strcmp(canc_divs, "13") == 0) ||
+                (strcmp(canc_divs, "23") == 0)) 
+            {
+               strcpy(hv_canc_divs.arr,"2");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            } 
+	    else 
+	    {
+               strcpy(hv_canc_divs.arr,"1");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            }
+
+            /* 자/타구분 check */
+            if (strcmp(jata_divs, "00000000000000") > 0)
+            {
+               strcpy(hv_jata_divs.arr,"82");
+               hv_jata_divs.len = strlen(hv_jata_divs.arr);
+            } 
+	    else 
+ 	    {
+               strcpy(hv_jata_divs.arr,"81");
+               hv_jata_divs.len = strlen(hv_jata_divs.arr);
+            }
+
+	    strncpy( hv_amt.arr,        &buffer[5],   13 );
+	    strncpy( hv_remd.arr,       &buffer[54],  14 );
+	    strncpy( hv_chck_num.arr,   &buffer[19],  8  );
+	    strncpy( hv_etc_data.arr,   &buffer[44],  10 );
+	    strncpy( hv_site_code.arr,  &buffer[27],  3  );
+            hv_amt.len       = strlen(hv_amt.arr);
+            hv_remd.len      = strlen(hv_remd.arr);
+            hv_chck_num.len  = strlen(hv_chck_num.arr);
+            hv_etc_data.len  = strlen(hv_etc_data.arr);
+            hv_site_code.len = strlen(hv_site_code.arr);
+
+	    /* 수표번호 check */
+	    if ( strcmp(hv_chck_num.arr, "00000000") == 0 )
+	    {
+		strcpy(hv_chck_num.arr, "");
+		hv_chck_num.len = strlen(hv_chck_num.arr);
+	    }
+
+            if (ii == 1) {
+               /* 한일은행 FB data delete */
+               EXEC SQL DELETE FROM JATB508
+                        WHERE  TRNS_DATE = decode( least(substr(:hv_trns_date,1,2),50 ), '50', '19', '20' )||:hv_trns_date
+                        AND    RTRIM(REPLACE(ACNT_NUM,'-')) = \
+                               RTRIM(:hv_acnt_num);
+
+               if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+                  printf("jatb508 delete error : %d\n",sqlca.sqlcode);
+                  close(fp);
+                  EXEC SQL ROLLBACK WORK;
+                  return FAILURE;
+               }
+            }
+
+            /* 한일은행 FB insert */
+            EXEC SQL INSERT INTO JATB508 ( ACNT_NUM,
+	                                   TRNS_DATE,	
+					   SEQ,
+					   IN_OUT_DIVS,
+					   CANC_DIVS,
+					   AMT,
+					   CHCK_NUM,
+					   REMD,
+					   JATA_DIVS,
+					   ETC_DATA,
+                                           SITE_CODE)
+			     VALUES      ( substr(:hv_acnt_num,1,3)||'-'||
+                                           substr(:hv_acnt_num,4,6)||'-'||
+                                           substr(:hv_acnt_num,10,2)||'-'||
+                                           substr(:hv_acnt_num,12,3),
+					   decode( least(substr(:hv_trns_date,1,2),50 ), '50', '19', '20' )||:hv_trns_date,
+					   :ii,
+					   :hv_in_out_divs,
+					   :hv_canc_divs,
+					   :hv_amt,
+					   :hv_chck_num,
+					   :hv_remd,
+					   :hv_jata_divs,
+					   :hv_etc_data,
+                                           :hv_site_code);
+
+            if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+               printf("jatb508 insert error : %d\n",sqlca.sqlcode);
+               close(fp);
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+            }
+         }
+      }
+   }
+   printf("한일은행 은행자료 load OK! ---> %d 건\n",ii);
+   close(fp);
+   return SUCCESS;
+}
+
+/* 제일은행 FB data load */
+int kfb_process()
+{
+   char chck;
+   char in_out;
+   char canc_divs;
+   char remd;
+   ii  = 0;
+   chk = 0;
+
+   if (( fp=fopen( kfb,"r" )) != NULL )
+   {
+      VCHINIT(hv_befr_acnt_num);
+      strcpy(hv_befr_acnt_num.arr, "first");
+      hv_befr_acnt_num.len = strlen(hv_befr_acnt_num.arr);
+
+      while ( fgets( buffer,256,fp ) != NULL )
+      {
+         /* host variable 초기화 */
+         VCHINIT(hv_acnt_num);
+         VCHINIT(hv_trns_date);
+         VCHINIT(hv_in_out_divs);
+         VCHINIT(hv_canc_divs);
+         VCHINIT(hv_amt);
+         VCHINIT(hv_chck_num);
+         VCHINIT(hv_remd);
+         VCHINIT(hv_jata_divs);
+         VCHINIT(hv_drft_chck_divs);
+         VCHINIT(hv_etc_data);
+
+         chck      = buffer[0];
+	 in_out    = buffer[18];
+	 canc_divs = buffer[19];
+	 remd      = buffer[34];
+
+         /* data check */
+         if ( chck == 'D' ) 
+         {
+            ii = ii + 1;
+
+            /* 입/출구분 check */
+            if ( in_out == '1' )
+            {
+               strcpy(hv_in_out_divs.arr,"1");
+	       strncpy( hv_etc_data.arr,   &buffer[59],  10 );
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+               hv_etc_data.len    = strlen(hv_etc_data.arr);
+            } else {
+               strcpy(hv_in_out_divs.arr,"2");
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+            }
+
+            /* 취소구분 check */
+            if (( canc_divs == '3' ) || ( canc_divs == '2' ))
+            {
+               strcpy(hv_canc_divs.arr,"2");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            } else {
+               strcpy(hv_canc_divs.arr,"1");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            }
+
+            /* 잔액 check */
+            if ( remd == '+' )
+            {
+               chk = 1;
+            } else {
+               chk = -1;
+            }
+
+            strcpy( hv_jata_divs.arr,"81");
+	    strncpy( hv_acnt_num.arr,   &buffer[1],   11 );
+	    strncpy( hv_trns_date.arr,  &buffer[12],  6  );
+	    strncpy( hv_amt.arr,        &buffer[23],  11 );
+	    strncpy( hv_remd.arr,       &buffer[35],  11 );
+	    strncpy( hv_chck_num.arr,   &buffer[50],  8  );
+	    strncpy( hv_site_code.arr,  &buffer[18],  3  );
+            hv_jata_divs.len = strlen(hv_jata_divs.arr);
+            hv_acnt_num.len  = strlen(hv_acnt_num.arr);
+            hv_trns_date.len = strlen(hv_trns_date.arr);
+            hv_amt.len       = strlen(hv_amt.arr);
+            hv_remd.len      = strlen(hv_remd.arr);
+            hv_chck_num.len  = strlen(hv_chck_num.arr);
+            hv_site_code.len = strlen(hv_site_code.arr);
+
+	    /* 수표번호 check */
+	    if ( strcmp(hv_chck_num.arr, "00000000") == 0 )
+	    {
+		strcpy(hv_chck_num.arr, "");
+		hv_chck_num.len = strlen(hv_chck_num.arr);
+	    }
+
+            if (strcmp(hv_acnt_num.arr,hv_befr_acnt_num.arr) != 0) {
+               /* 제일은행 FB data delete */
+               EXEC SQL DELETE FROM JATB508
+                        WHERE  TRNS_DATE = decode( least(substr(:hv_trns_date,1,2),50 ), '50', '19', '20' )||:hv_trns_date
+                        AND    RTRIM(REPLACE(ACNT_NUM,'-')) = \
+                               RTRIM(:hv_acnt_num);
+
+               if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+                  printf("jatb508 delete error : %d\n",sqlca.sqlcode);
+                  close(fp);
+                  EXEC SQL ROLLBACK WORK;
+                  return FAILURE;
+               }
+            }
+
+            /* 제일은행 FB insert */
+            EXEC SQL INSERT INTO JATB508 ( ACNT_NUM,
+	                                   TRNS_DATE,	
+					   SEQ,
+					   IN_OUT_DIVS,
+					   CANC_DIVS,
+					   AMT,
+					   CHCK_NUM,
+					   REMD,
+					   JATA_DIVS,
+					   ETC_DATA,
+                                           SITE_CODE)
+			     VALUES      ( substr(:hv_acnt_num,1,3)||'-'||
+                                           substr(:hv_acnt_num,4,2)||'-'||
+                                           substr(:hv_acnt_num,6,6),
+					   decode( least(substr(:hv_trns_date,1,2),50 ), '50', '19', '20' )||:hv_trns_date,
+					   :ii,
+					   :hv_in_out_divs,
+					   :hv_canc_divs,
+					   :hv_amt,
+					   :hv_chck_num,
+					   :chk * :hv_remd,
+					   :hv_jata_divs,
+					   :hv_etc_data,
+                                           :hv_site_code);
+
+            if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+               printf("jatb508 insert error : %d\n",sqlca.sqlcode);
+               close(fp);
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+            }
+         }
+          strcpy(hv_befr_acnt_num.arr, hv_acnt_num.arr);
+          hv_befr_acnt_num.len = hv_befr_acnt_num.len;
+      }
+   }
+   printf("제일은행 은행자료 load OK! ---> %d 건\n",ii);
+   close(fp);
+   return SUCCESS;
+}
+
+
+/* 조흥은행 FB data load */
+int chb_process()
+{
+   char chck;
+   char in_out[2 + 1];
+   char canc_divs[3 + 1];
+   char remd;
+   char jata_divs[11 + 1];
+   ii  = 0;
+   chk = 0;
+
+   VCHINIT(hv_trns_date);
+
+   if (( fp=fopen( chb,"r" )) != NULL )
+   {
+      while ( fgets( buffer,256,fp ) != NULL )
+      {
+         /* host variable 초기화 */
+         VCHINIT(hv_acnt_num);
+         VCHINIT(hv_in_out_divs);
+         VCHINIT(hv_canc_divs);
+         VCHINIT(hv_amt);
+         VCHINIT(hv_chck_num);
+         VCHINIT(hv_remd);
+         VCHINIT(hv_drft_chck_divs);
+         VCHINIT(hv_etc_data);
+         VCHINIT(hv_trns_divs);
+         VCHINIT(hv_send_bank);
+
+         chck      = buffer[0];
+	 remd      = buffer[27];
+         strncpy( hv_send_bank.arr, &buffer[1], 2);
+         hv_send_bank.len = strlen(hv_send_bank.arr);
+         printf("send_bank1 : %s\n",hv_send_bank.arr);
+         strncat( hv_send_bank.arr, &buffer[40],3);
+         hv_send_bank.len = strlen(hv_send_bank.arr);
+         printf("send_bank2 : %s\n",hv_send_bank.arr);
+	 strncpy( in_out   ,  &buffer[14],   2  );
+	 strncpy( hv_trns_divs   ,  &buffer[14],   2  );
+	 strncpy( canc_divs,  &buffer[77],   3  );
+	 strncpy( jata_divs,  &buffer[67],   11 );
+         jata_divs[11] = '\0';
+
+         if ( chck == 'S' )
+	     strncat( hv_trns_date.arr,  &buffer[21],  8  );
+         
+         /* data check */
+         if ( chck == 'D' )
+         {
+            ii = ii + 1;
+
+            /* 입/출구분 check */
+            if ( strncmp(in_out, "30", 2) == 0 || strncmp(in_out,"31",2) == 0 || 
+                 strncmp(in_out,"41",2) == 0 
+               )
+            {
+               strcpy(  hv_in_out_divs.arr,"2");
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+
+	       strncpy( hv_chck_num.arr,   &buffer[59],  8  );
+               hv_chck_num.len    = strlen(hv_chck_num.arr);
+
+	       strncpy( hv_etc_data.arr,   &buffer[59],  8  );
+               hv_etc_data.len  = strlen(hv_etc_data.arr);
+
+               if ( strncmp(in_out, "30", 2) == 0 && strcmp(hv_chck_num.arr, "00000000") == 0) 
+	            strncpy( hv_trns_divs   , "91",  2); /* 자동이체지급 */
+            } 
+            else /*입금*/ 
+            {
+               strcpy(hv_in_out_divs.arr,"1");
+	       strncpy( hv_etc_data.arr,   &buffer[43],  16 );
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+               hv_etc_data.len  = strlen(hv_etc_data.arr);
+            }
+
+            /* 취소구분 check */
+            if (strcmp(canc_divs,"111") == 0)
+            {
+               strcpy(hv_canc_divs.arr,"2");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            } else {
+               strcpy(hv_canc_divs.arr,"1");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            }
+
+            /* 자/타구분 check */
+            if (strcmp(jata_divs, "000000000000") > 0) {
+                strcpy(hv_jata_divs.arr,"82");
+                hv_jata_divs.len = strlen(hv_jata_divs.arr);
+            } else {
+               strcpy(hv_jata_divs.arr,"81");
+               hv_jata_divs.len = strlen(hv_jata_divs.arr);
+            }
+
+            /* 잔액 check */
+            if (remd == '-') {
+               chk = -1;
+            } else {
+               chk = 1;
+            }
+
+	    strncpy( hv_acnt_num.arr,   &buffer[3],   11 );
+            hv_acnt_num.len  = strlen(hv_acnt_num.arr);
+
+	    strncpy( hv_amt.arr,        &buffer[16],  11 );
+            hv_amt.len       = strlen(hv_amt.arr);
+	    strncpy( hv_remd.arr,       &buffer[28],  12 );
+            hv_remd.len      = strlen(hv_remd.arr);
+
+	    strncpy( hv_site_code.arr,  &buffer[40],  3  );
+            hv_site_code.len = strlen(hv_site_code.arr);
+            hv_trns_date.len = strlen(hv_trns_date.arr);
+
+            /* 조흥은행 FB data delete */
+            if (ii == 1) {
+               EXEC SQL DELETE FROM JATB508
+                        WHERE  TRNS_DATE = :hv_trns_date
+                        AND    ACNT_NUM LIKE '327%';
+                     /*********
+                        AND    RTRIM(REPLACE(ACNT_NUM,'-')) = \
+                               RTRIM(:hv_acnt_num);
+                     ********/
+               if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+                  printf("hv_trns_date:/%s/  , hv_acnt_num:/%s/ , jatb508 delete error : %d\n",hv_trns_date.arr, hv_acnt_num.arr, sqlca.sqlcode);
+                  close(fp);
+                  EXEC SQL ROLLBACK WORK;
+                  return FAILURE;
+               }
+
+	    /***** 조흥마포 계좌 기존 데이타 삭제 (계좌번호가 hard coding 되어있음) *****/
+
+               EXEC SQL DELETE FROM JATB508
+                        WHERE  TRNS_DATE = :hv_trns_date
+                        AND    RTRIM(REPLACE(ACNT_NUM,'-')) = '31607000516';
+
+               if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+                  printf("hv_trns_date:/%s/  , hv_acnt_num:/%s/ , jatb508 delete error : %d\n",hv_trns_date.arr, hv_acnt_num.arr, sqlca.sqlcode);
+                  close(fp);
+                  EXEC SQL ROLLBACK WORK;
+                  return FAILURE;
+
+               }
+            }
+
+
+
+            /* 조흥은행 FB insert */
+            EXEC SQL INSERT INTO JATB508 ( ACNT_NUM,
+	                                   TRNS_DATE,	
+					   SEQ,
+					   IN_OUT_DIVS,
+					   CANC_DIVS,
+					   AMT,
+					   CHCK_NUM,
+					   REMD,
+					   JATA_DIVS,
+					   ETC_DATA,
+                                           SITE_CODE,
+                                           TRNS_DIVS,
+                                           SEND_BANK,
+                                           UPD_EMPNO,
+                                           UPD_DATE)
+			     VALUES      ( substr(:hv_acnt_num,1,3)||'-'||
+                                           substr(:hv_acnt_num,4,2)||'-'||
+                                           substr(:hv_acnt_num,6,6),
+					   :hv_trns_date,
+					   :ii,
+					   :hv_in_out_divs,
+					   :hv_canc_divs,
+			   DECODE( :hv_trns_divs, '51', :hv_amt * -1,
+                                                        :hv_amt ),
+					   :hv_chck_num,
+					   :chk * :hv_remd,
+					   :hv_jata_divs,
+					   :hv_etc_data,
+                                           :hv_site_code,
+                                           :hv_trns_divs,
+                                           :hv_send_bank,
+                                           'EDS',
+                                           SYSDATE);
+
+            if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+               printf("jatb508 insert error : %d\n",sqlca.sqlcode);
+               close(fp);
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+            }
+         }
+      }
+   }
+   printf("조흥은행 은행자료 load OK! ---> %d 건\n",ii);
+   close(fp);
+   return SUCCESS;
+
+}
+
+
+
+/* 외환은행 FB data load */
+int keb_process() 
+{
+   char chck;
+   char in_out;
+   char canc_divs;
+   char remd;
+   ii  = 0;
+   chk = 0;
+
+   VCHINIT(hv_trns_date);
+
+   if (( fp=fopen( keb,"r" )) != NULL )
+   {
+      while ( fgets( buffer,256,fp ) != NULL )
+      {
+         /* host variable 초기화 */
+         VCHINIT(hv_acnt_num);
+         VCHINIT(hv_in_out_divs);
+         VCHINIT(hv_canc_divs);
+         VCHINIT(hv_amt);
+         VCHINIT(hv_chck_num);
+         VCHINIT(hv_remd);
+         VCHINIT(hv_jata_divs);
+         VCHINIT(hv_drft_chck_divs);
+         VCHINIT(hv_etc_data);
+
+         chck      = buffer[0];
+	 in_out    = buffer[12];
+	 remd      = buffer[42];
+	 canc_divs = buffer[13];
+
+         /* head check */
+         if ( chck == 'S' )
+         {
+	    strncpy( hv_trns_date.arr,  &buffer[18],  8  );
+            hv_trns_date.len = strlen(hv_trns_date.arr);
+         }
+         /* data check */
+         if ( chck == 'D' ) 
+         {
+            ii = ii + 1;
+
+            /* 입/출구분 check */
+            if ( in_out == '1' )
+            {
+               strcpy(hv_in_out_divs.arr,"1");
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+  
+            } else {
+               strcpy(hv_in_out_divs.arr,"2");
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+            }
+
+            /* 취소구분 check */
+            if ( canc_divs == '1' )
+            {
+               strcpy(hv_canc_divs.arr,"1");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            } else {
+               strcpy(hv_canc_divs.arr,"2");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            }
+
+            /* 잔액 check */
+            if ( remd == '+' ) {
+               chk = 1;
+            } else {
+               chk = -1;
+            }
+            strcpy(hv_jata_divs.arr,"81");
+	    strncpy( hv_acnt_num.arr,   &buffer[1],   11 );
+	    strncpy( hv_amt.arr,        &buffer[16],  13 );
+	    strncpy( hv_remd.arr,       &buffer[29],  13 );
+	    strncpy( hv_chck_num.arr,   &buffer[57],  8  );
+	    strncpy( hv_etc_data.arr,   &buffer[46],  10 );
+	    strncpy( hv_site_code.arr,  &buffer[43],  3  );
+            hv_jata_divs.len = strlen(hv_jata_divs.arr);
+            hv_acnt_num.len  = strlen(hv_acnt_num.arr);
+            hv_amt.len       = strlen(hv_amt.arr);
+            hv_remd.len      = strlen(hv_remd.arr);
+            hv_chck_num.len  = strlen(hv_chck_num.arr);
+            hv_etc_data.len  = strlen(hv_etc_data.arr);
+            hv_site_code.len = strlen(hv_site_code.arr);
+
+	    /* 수표번호 check */
+	    if ( strcmp(hv_chck_num.arr, "00000000") == 0 )
+	    {
+		strcpy(hv_chck_num.arr, "");
+		hv_chck_num.len = strlen(hv_chck_num.arr);
+	    }
+
+            if (ii == 1) {
+               /* 외환은행 FB data delete */
+               EXEC SQL DELETE FROM JATB508
+                        WHERE  TRNS_DATE = :hv_trns_date
+                        AND    (RTRIM(REPLACE(ACNT_NUM, '-')) = '03011003558'
+                            or RTRIM(REPLACE(ACNT_NUM, '-')) = '02411002848');
+
+               if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+                  printf("jatb508 delete error : %d\n",sqlca.sqlcode);
+                  close(fp);
+                  EXEC SQL ROLLBACK WORK;
+                  return FAILURE;
+               }
+            }
+
+            /* 외환은행 FB insert */
+            EXEC SQL INSERT INTO JATB508 ( ACNT_NUM,
+	                                   TRNS_DATE,	
+					   SEQ,
+					   IN_OUT_DIVS,
+					   CANC_DIVS,
+					   AMT,
+					   CHCK_NUM,
+					   REMD,
+					   JATA_DIVS,
+					   ETC_DATA,
+					   SITE_CODE)
+			     VALUES      ( substr(:hv_acnt_num,1,3)||'-'||
+                                           substr(:hv_acnt_num,4,2)||'-'||
+                                           substr(:hv_acnt_num,6,5)||'-'||
+                                           substr(:hv_acnt_num,11,1),
+					   :hv_trns_date,
+					   :ii,
+					   :hv_in_out_divs,
+					   :hv_canc_divs,
+					   :hv_amt,
+					   :hv_chck_num,
+					   :chk * :hv_remd,
+					   :hv_jata_divs,
+					   :hv_etc_data,
+                                           :hv_site_code);
+
+            if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+               printf("jatb508 insert error : %d\n",sqlca.sqlcode);
+               close(fp);
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+            }
+         }
+      }
+   }
+   printf("외환은행 은행자료 load OK! ---> %d 건\n",ii);
+   close(fp);
+   return SUCCESS;
+}
+
+
+
+/* 농협 FB data load */
+int nfa_process()
+{
+   char chck;
+   char in_out[2 + 1];
+   char jata_divs1[2 + 1];
+   char jata_divs2[2 + 1];
+   char remd;
+   int  chk;
+   ii = 0;
+
+   VCHINIT(hv_acnt_num);
+   VCHINIT(hv_trns_date);
+
+   if (( fp=fopen( nfa,"r" )) != NULL )
+   {
+      while ( fgets( buffer,256,fp ) != NULL )
+      {
+         /* host variable 초기화 */
+         VCHINIT(hv_in_out_divs);
+         VCHINIT(hv_canc_divs);
+         VCHINIT(hv_amt);
+         VCHINIT(hv_chck_num);
+         VCHINIT(hv_remd);
+         VCHINIT(hv_jata_divs);
+         VCHINIT(hv_drft_chck_divs);
+         VCHINIT(hv_etc_data);
+
+         chck = buffer[0];
+         strncpy( in_out,     &buffer[7],   2 );
+         strncpy( jata_divs1,  &buffer[102],  2);
+         strncpy( jata_divs2,  &buffer[115],  2);
+         jata_divs1[3] = '\0';
+         jata_divs2[3] = '\0';
+
+         /* head check */
+         if ( chck == 'S' )
+         {
+            strncpy( hv_trns_date.arr,  &buffer[8],  6  );
+            hv_trns_date.len = strlen(hv_trns_date.arr);
+         }
+         /* data check */
+         if ( chck == 'D' )
+         {
+            ii = ii + 1;
+
+            remd = buffer[58];
+            /* 입/출구분 check */
+            if ((strncmp("10",in_out,2) == 0) ||
+                (strncmp("11",in_out,2) == 0) ||
+                (strncmp("15",in_out,2) == 0) ||
+                (strncmp("16",in_out,2) == 0))
+            {
+               strcpy(hv_in_out_divs.arr,"1");
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+
+            }
+            else
+            {
+               strcpy(hv_in_out_divs.arr,"2");
+               hv_in_out_divs.len = strlen(hv_in_out_divs.arr);
+            }
+
+            /* 취소구분 check */
+            if ((strcmp(in_out, "11") == 0) ||
+                (strcmp(in_out, "16") == 0) ||
+                (strcmp(in_out, "21") == 0) ||
+                (strcmp(in_out, "26") == 0))
+            {
+               strcpy(hv_canc_divs.arr,"2");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            }
+            else
+            {
+               strcpy(hv_canc_divs.arr,"1");
+               hv_canc_divs.len = strlen(hv_canc_divs.arr);
+            }
+
+            /* 자/타구분 check */
+            if (strcmp(jata_divs1, "00") > 0 || strcmp(jata_divs2, "00") > 0 )
+            {
+               strcpy(hv_jata_divs.arr,"82");
+               hv_jata_divs.len = strlen(hv_jata_divs.arr);
+            }
+            else
+            {
+               strcpy(hv_jata_divs.arr,"81");
+               hv_jata_divs.len = strlen(hv_jata_divs.arr);
+            }
+
+            /* 잔액 check */
+            if ( remd == '+' )
+                chk = 1;
+            else
+                chk = -1;
+ 
+            strncpy( hv_acnt_num.arr,   &buffer[36],   11 );
+            strncpy( hv_amt.arr,        &buffer[47],   11 );
+            strncpy( hv_remd.arr,       &buffer[59],  13 );
+            strncpy( hv_chck_num.arr,   &buffer[154],  8  );
+            strncpy( hv_etc_data.arr,   &buffer[128],  20 );
+            strncpy( hv_site_code.arr,  "974",  3  );
+            hv_acnt_num.len  = strlen(hv_acnt_num.arr);
+            hv_amt.len       = strlen(hv_amt.arr);
+            hv_remd.len      = strlen(hv_remd.arr);
+            hv_chck_num.len  = strlen(hv_chck_num.arr);
+            hv_etc_data.len  = strlen(hv_etc_data.arr);
+            hv_site_code.len = strlen(hv_site_code.arr);
+
+            /* 수표번호 check */
+            if ( strcmp(hv_chck_num.arr, "00000000") == 0 )
+            {
+                strcpy(hv_chck_num.arr, "");
+                hv_chck_num.len = strlen(hv_chck_num.arr);
+            }
+
+            if (ii == 1) {
+               /* 농협 FB data delete */
+               EXEC SQL DELETE FROM JATB508
+                        WHERE  TRNS_DATE = decode( least(substr(:hv_trns_date,1,2),50 ), '50', '19',
+ '20' )||:hv_trns_date
+                        AND    RTRIM(REPLACE(ACNT_NUM,'-')) = \
+                               RTRIM(:hv_acnt_num);
+
+               if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+                  printf("jatb508 delete error : %d\n",sqlca.sqlcode);
+                  close(fp);
+                  EXEC SQL ROLLBACK WORK;
+                  return FAILURE;
+               }
+            }
+
+            /* 농협 FB insert */
+            EXEC SQL INSERT INTO JATB508 ( ACNT_NUM,
+                                           TRNS_DATE,
+                                           SEQ,
+                                           IN_OUT_DIVS,
+                                           CANC_DIVS,
+                                           AMT,
+                                           CHCK_NUM,
+                                           REMD,
+                                           JATA_DIVS,
+                                           ETC_DATA,
+                                           SITE_CODE)
+                             VALUES      ( substr(:hv_acnt_num,1,3)||'-'||
+                                           substr(:hv_acnt_num,4,2)||'-'||
+                                           substr(:hv_acnt_num,6,6),
+                                           decode( least(substr(:hv_trns_date,1,2),50 ), '50', '19',
+ '20' )||:hv_trns_date,
+                                           :ii,
+                                           :hv_in_out_divs,
+                                           :hv_canc_divs,
+                                           :hv_amt,
+                                           :hv_chck_num,
+                                           :chk*:hv_remd,
+                                           :hv_jata_divs,
+                                           :hv_etc_data,
+                                           :hv_site_code);
+
+            if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA){
+               printf("jatb508 insert error : %d\n",sqlca.sqlcode);
+               close(fp);
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+            }
+         }
+      }
+   }
+   printf("농협 은행자료 load OK! ---> %d 건\n",ii);
+   close(fp);
+   return SUCCESS;
+}

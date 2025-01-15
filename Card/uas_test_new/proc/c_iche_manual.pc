@@ -1,0 +1,155 @@
+/**********************************************************/
+#include <stdio.h>
+/* #include <stdlib.h> */
+/* #include <string.h> */
+
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+#define SQL_DUP      -1
+
+/* host variable definition */
+EXEC SQL BEGIN DECLARE SECTION;
+
+char    *uid = "ja/j7bhjd2@DBSTD99";	
+static varchar p_msg[1000]; 
+static varchar p_slip_num[20 + 1];
+static varchar hv_prof_date[ 9 ];
+static varchar hv_prof_dept[ 7 ];
+static varchar hv_prof_clss[ 3 ];
+static varchar hv_prof_main[ 5 ];
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+int main()
+{
+   int inx = 0;
+
+   /* DB connetion */
+   EXEC SQL CONNECT :uid;
+
+   printf("db connected.......\n");
+
+   /* 지급어음 select */
+/*******
+   EXEC SQL DECLARE CURS CURSOR FOR
+       SELECT PROF_MAIN
+       FROM   FATA100
+       WHERE PROF_DATE = ' 
+       AND   PROF_DEPT = 'H2100'
+       AND   PROF_CLSS = '10'
+       AND   BUSN_DIVS = 'A2' 
+       ORDER BY PROF_MAIN;
+**********/
+
+   EXEC SQL DECLARE CURS CURSOR FOR
+       SELECT PROF_DATE,
+              PROF_DEPT,
+              PROF_CLSS,
+              PROF_MAIN
+       FROM   FATA100
+       WHERE PROF_DATE || RPAD( PROF_DEPT, 6, ' ' ) || PROF_CLSS || PROF_MAIN
+                 IN ( SELECT DISTINCT SLIP_NUM 
+                     FROM   JATB101
+                     WHERE  DMND_DATE = '19991231'
+                     AND    PAYM_DIVS = '04'
+                     AND    EXEC_DIVS = 'Y'
+                     AND    SLIP_NUM IS NOT NULL
+                   )
+       AND   BUSN_DIVS = 'A2' 
+       ORDER BY PROF_MAIN;
+
+   EXEC SQL OPEN CURS;
+
+   for ( inx = 0;;inx++ )
+   {
+       EXEC SQL FETCH CURS INTO
+           :hv_prof_date,            :hv_prof_dept,
+           :hv_prof_clss,            :hv_prof_main;
+
+       if ( SQLCODE == SQL_NO_DATA )
+	    if ( inx == 0 )
+	    {
+		printf( "NO_DATE ERROR : %d\n", sqlca.sqlcode );
+		EXEC SQL CLOSE CURS;
+		return FAILURE;
+            }
+            else
+               break;
+
+       else if (SQLCODE != SQL_OK)
+       {
+           printf( "FATA100 SELECT ERROR : %d\n", sqlca.sqlcode );
+           EXEC SQL CLOSE CURS;
+           EXEC SQL ROLLBACK WORK;
+           return FAILURE;
+       }
+      
+       iche_procedure();
+
+    } 
+
+
+    EXEC SQL CLOSE CURS;
+
+    EXEC SQL COMMIT WORK;
+    return SUCCESS;
+
+}
+
+iche_procedure()
+{
+    VCHINIT( p_msg );
+    EXEC SQL 
+         EXECUTE
+         BEGIN PROC_ICHE_BEFR ( :hv_prof_date,
+                                   :hv_prof_dept,
+                                   :hv_prof_clss,
+                                   :hv_prof_main,
+                                   :p_msg
+                                  );
+         END;
+    END-EXEC;
+    p_msg.len = strlen(p_msg.arr);
+
+    if ( p_msg.len == 0 || strcmp( p_msg.arr, "" ) == 0 )
+    {
+            printf( "%sH2100 10%s error =>%s \n", hv_prof_date.arr, hv_prof_main.arr, p_msg.arr );
+        EXEC SQL 
+             EXECUTE BEGIN PROC_ICHE_AFTR( :hv_prof_date,
+                                              :hv_prof_dept,
+                                              :hv_prof_clss,
+                                              :hv_prof_main,
+                                              '20000114',
+                                              '21',
+                                              '27465',
+                                              :p_slip_num,
+                                              :p_msg
+                                            );
+                     END;
+        END-EXEC;
+
+        if ( p_msg.len == 0 || strcmp( p_msg.arr, "" ) == 0 )
+        {
+            printf( "%sH2100 10%s ==> %s\n", hv_prof_date.arr, hv_prof_main.arr, p_slip_num.arr );
+        }
+        else
+        {
+            printf( "%sH2100 10%s error =>%s \n", hv_prof_date.arr, hv_prof_main.arr, p_msg.arr );
+            EXEC SQL ROLLBACK;
+            EXEC SQL CLOSE CURS;
+            return FAILURE;
+        }
+    }
+    else
+    {
+        printf( "%sH2100 10%s error =>%s \n", hv_prof_date.arr, hv_prof_main.arr, p_msg.arr );
+        EXEC SQL ROLLBACK;
+        EXEC SQL CLOSE CURS;
+        return FAILURE;
+    }
+}

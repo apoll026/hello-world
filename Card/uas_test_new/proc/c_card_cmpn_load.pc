@@ -1,0 +1,740 @@
+/**********************************************************/
+/* È­  ÀÏ  ¸í : c_card_cmpn_load.pc                       */
+/* ÀÛ  ¼º  ÀÏ : 2001.05.29                                */
+/* ÃÖÁ¾¼öÁ¤ÀÏ :                                           */
+/**********************************************************/
+/* ³»      ¿ë : ÀºÇàÀÚ·á ---> jatb407                     */
+/* »ç¿ë TABLE :                                           */
+/* »ç¿ëMODULE :                                           */
+/* PARAMETER  :                                           */
+/**********************************************************/
+
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
+char *getenv();
+
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+#define SQL_DUP      -1
+
+typedef int bool;
+typedef char asciiz[100];
+
+int l_cmpn_load();       /* LGÄ³ÇÇÅ» */
+int s_cmpn_load();       /* ½ÅÇÑÀºÇà */
+int k_cmpn_load();       /* ±¹¹ÎÀºÇà */
+int n_cmpn_load();       /* ³óÇù */
+int w_cmpn_load();       /* ¿ì¸®ÀºÇà */
+int j_cmpn_load();       /* Á¦ÀÏÀºÇà */
+
+/* host variable definition */
+EXEC SQL BEGIN DECLARE SECTION;
+EXEC SQL TYPE asciiz IS STRING(100) REFERENCE;
+char    *uid = "ja/j7bhjd2@DBSTD99";	
+static char chck[3];
+static char divs[3];
+static asciiz hv_cmpn_num;
+static asciiz hv_cmpn_name;
+static asciiz hv_join_store_num;
+static asciiz hv_reg_date;
+static asciiz hv_divs;
+
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+FILE *fp;
+
+char buffer[500 + 1];
+char card_bank[1 + 1];
+
+int main( int agrc, char **agrv )
+{
+   strcpy(card_bank,agrv[1]);
+
+   /* DB connetion */
+   EXEC SQL CONNECT :uid;
+
+   if (strncmp(card_bank, "L", 1) == 0 )
+   {
+       if ( l_cmpn_load() == FAILURE )
+       {
+           printf("LGÄ³ÇÇÅ» °¡¸ÍÁ¡ data load ½ÇÆÐ\n");
+           return FAILURE;
+       }
+       else
+           printf("LGÄ³ÇÇÅ» °¡¸ÍÁ¡ data load ¼º°ø\n");
+   }
+   else if (strncmp(card_bank, "S", 1) == 0 )
+   {
+       if ( s_cmpn_load() == FAILURE )
+       {
+           printf("½ÅÇÑÀºÇà °¡¸ÍÁ¡ data load ½ÇÆÐ\n");
+           return FAILURE;
+       }
+       else
+           printf("½ÅÇÑÀºÇà °¡¸ÍÁ¡ data load ¼º°ø\n");
+   }
+   else if (strncmp(card_bank, "K", 1) == 0 )
+   {
+       if ( k_cmpn_load() == FAILURE )
+       {
+           printf("±¹¹ÎÀºÇà °¡¸ÍÁ¡ data load ½ÇÆÐ\n");
+           return FAILURE;
+       }
+       else
+           printf("±¹¹ÎÀºÇà °¡¸ÍÁ¡ data load ¼º°ø\n");
+   }
+   else if (strncmp(card_bank, "N", 1) == 0 )
+   {
+       if ( n_cmpn_load() == FAILURE )
+       {
+           printf("³óÇù °¡¸ÍÁ¡ data load ½ÇÆÐ\n");
+           return FAILURE;
+       }
+       else
+           printf("³óÇù °¡¸ÍÁ¡ data load ¼º°ø\n");
+   }
+   else if (strncmp(card_bank, "W", 1) == 0 )
+   {
+       if ( w_cmpn_load() == FAILURE )
+       {
+           printf("¿ì¸®ÀºÇà °¡¸ÍÁ¡ data load ½ÇÆÐ\n");
+           return FAILURE;
+       }
+       else
+           printf("¿ì¸®ÀºÇà °¡¸ÍÁ¡ data load ¼º°ø\n");
+   }
+   else if (strncmp(card_bank, "J", 1) == 0 )
+   {
+       if ( j_cmpn_load() == FAILURE )
+       {
+           printf("Á¦ÀÏÀºÇà °¡¸ÍÁ¡ data load ½ÇÆÐ\n");
+           return FAILURE;
+       }
+       else
+           printf("Á¦ÀÏÀºÇà °¡¸ÍÁ¡ data load ¼º°ø\n");
+   }
+
+   EXEC SQL COMMIT WORK;
+   return SUCCESS;
+}
+
+/* LGÄ³ÇÇÅ» °¡¸ÍÁ¡ data load */
+int l_cmpn_load()
+{
+   int inx = 0;
+
+   puts("LGÄ³ÇÇÅ» °¡¸ÍÁ¡ Data Load");
+   if (( fp=fopen( "/app/fund/fb/reg_fund/reg_card/lgc.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,500,fp ) != NULL )
+      {
+          strncpy(chck,&buffer[0],1);
+          if (strncmp(chck, "D", 1) == 0)
+          {
+                strncpy(hv_join_store_num, &buffer[42], 11);
+                strncpy(hv_cmpn_num, &buffer[448], 10);
+                puts(hv_cmpn_num);
+                puts(&buffer[448]);
+                strncpy(hv_cmpn_name, &buffer[58], 30);
+                inx = inx + 1; 
+                printf("%dth Data Processing °¡¸ÍÁ¡ : %s Insert!!\n", inx, hv_join_store_num); 
+                EXEC SQL
+                     INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'L',                :hv_cmpn_num,      :hv_cmpn_name,
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                  );
+
+                if(SQLCODE == SQL_DUP)
+                {
+                    printf("%dth Data Delete °¡¸ÍÁ¡ : %s!!\n", inx, hv_join_store_num); 
+                    EXEC SQL
+                         DELETE FROM JATB407
+                         WHERE  CARD_BANK = 'L'
+                         AND    CMPN_NUM = :hv_cmpn_num;
+
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("LGÄ³ÇÇÅ» °Å·¡Ã³ : cmpn_num : %s Delete error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                      ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                        JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                        UPD_DATE,           REG_DATE
+                                      )
+                               VALUES ( 'L',                :hv_cmpn_num,      :hv_cmpn_name,
+                                        RTRIM(:hv_join_store_num), 'Y',               'demon',
+                                        SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                      );
+
+                    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {    
+                        printf("LGÄ³ÇÇÅ» °Å·¡Ã³ : cmpn_num : %s Insert2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                    printf("LGÄ³ÇÇÅ» °Å·¡Ã³ : cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+/*
+                EXEC SQL UPDATE TV310
+*/
+                EXEC SQL UPDATE PMVT001
+                         SET    LGCARD = 'Y'
+                         WHERE  BSCD   = :hv_cmpn_num;
+
+                if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                    printf("LGÄ³ÇÇÅ» PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+                
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/reg_card/lgc_cmpn_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : lgc.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+/* ½ÅÇÑÀºÇà °¡¸ÍÁ¡ data load */
+int s_cmpn_load()
+{
+   int inx = 0;
+
+   puts("½ÅÇÑÀºÇà °¡¸ÍÁ¡ Data Load");
+
+   if (( fp=fopen( "/app/fund/fb/reg_fund/reg_card/shb.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,256,fp ) != NULL )
+      {
+          puts(buffer);
+
+          strncpy(chck,&buffer[0],2);
+          printf("chck:%s\n",chck);
+          if (strncmp(chck, "20", 2) == 0)
+          {
+                strncpy(hv_join_store_num, &buffer[2], 11);
+                strncpy(hv_cmpn_num, &buffer[13], 10);
+                strncpy(hv_cmpn_name, &buffer[36], 30);
+                strncpy(hv_divs, &buffer[66], 1);
+                strncpy(hv_reg_date, &buffer[67], 8);
+                inx = inx + 1; 
+                puts(hv_divs);
+                if (strncmp(hv_divs, "0",1) == 0 )           /*  ½Å±Ô  */
+                {
+                    printf("%dth Data Processing °¡¸ÍÁ¡ : %s Insert!!\n", inx, hv_join_store_num); 
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                       ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                         JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                         UPD_DATE,           REG_DATE
+                                       )
+                                VALUES ( 'S',                :hv_cmpn_num,      :hv_cmpn_name,
+                                         :hv_join_store_num, 'Y',               'demon',
+                                         SYSDATE,            :hv_reg_date
+                                       );
+
+                    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {    
+                        printf("½ÅÇÑÀºÇà °Å·¡Ã³ Insert error : %d\n",sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                       return FAILURE;
+                    }
+
+/*
+                    EXEC SQL UPDATE TV310
+*/
+                    EXEC SQL UPDATE PMVT001
+                             SET    LGCARD = 'Y'
+                             WHERE  BSCD   = :hv_cmpn_num;
+
+                    if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {
+                        printf("½ÅÇÑÀºÇà PMS cmpn_num : %s Update Error1 : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                }
+                else if (strncmp(hv_divs, "2",1) == 0 )       /*  ÇØÁ¦  */
+                {
+                    printf("%dth Data Processing °¡¸ÍÁ¡ : %s Canceled!!\n",inx,hv_join_store_num); 
+                    EXEC SQL
+                         UPDATE JATB407
+                         SET    USE_DIVS = 'N'
+                         WHERE  JOIN_STORE_NUM = :hv_join_store_num;
+                        
+                    if(SQLCODE != SQL_OK)
+                    {
+                        printf("½ÅÇÑÀºÇà °Å·¡Ã³ Delete error1 : %d\n",sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }    
+
+/*
+                    EXEC SQL UPDATE TV310
+*/
+                    EXEC SQL UPDATE PMVT001
+                             SET    LGCARD = 'N'
+                             WHERE  BSCD   = :hv_cmpn_num;
+
+                    if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {
+                        printf("½ÅÇÑÀºÇà PMS cmpn_num : %s Update Error2 : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }    
+                else if (strncmp(hv_divs, "1",1) == 0 )       /*  º¯°æ  */
+                {
+                    printf("%dth Data Processing °¡¸ÍÁ¡ : %s Update!!\n", inx, hv_join_store_num); 
+                    printf("cmpn_num: %s Update!!\n",  hv_cmpn_num); 
+                    printf("cmpn_name: %s Update!!\n", hv_cmpn_name); 
+                    EXEC SQL
+                         UPDATE JATB407
+                         SET    CMPN_NUM = :hv_cmpn_num
+                         ,      CMPN_NAME = :hv_cmpn_name
+                         ,      USE_DIVS = 'Y'
+                         WHERE  JOIN_STORE_NUM = :hv_join_store_num;
+    
+                    if(SQLCODE != SQL_OK)
+                    {
+                        printf("½ÅÇÑÀºÇà °Å·¡Ã³ Delete error2 : %d\n",sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/reg_card/shb_cmpn_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : shb.dat\n");
+        return FAILURE;
+    }
+    return SUCCESS;
+}
+/* ±¹¹ÎÀºÇà °¡¸ÍÁ¡ data load */
+int k_cmpn_load()
+{
+   int inx = 0;
+
+   puts("±¹¹ÎÀºÇà °¡¸ÍÁ¡ Data Load");
+
+   if (( fp=fopen( "/app/fund/fb/reg_fund/reg_card/kmb.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,256,fp ) != NULL )
+      {
+
+          strncpy(hv_join_store_num, &buffer[10], 8);
+          strncpy(hv_cmpn_num, &buffer[0], 10);
+          strncpy(hv_cmpn_name, &buffer[43], 30);
+          inx = inx + 1; 
+          printf("%dth Data Processing °¡¸ÍÁ¡ : %s Insert!!\n", inx, hv_join_store_num); 
+              EXEC SQL
+                      INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE
+                                  )
+                           VALUES ( 'K',                :hv_cmpn_num,      :hv_cmpn_name,
+                                    :hv_join_store_num, 'Y',               'demon',
+                                    SYSDATE
+                                  );
+
+          if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+          {   
+              printf("½ÅÇÑÀºÇà °Å·¡Ã³ Insert error : %d\n",sqlca.sqlcode);
+              close(fp);
+              EXEC SQL ROLLBACK WORK;
+              return FAILURE;
+          }
+       }
+    }
+    else 
+    {
+        printf("File Open Error : kmb.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+int n_cmpn_load()
+{
+   int inx = 0;
+
+   puts("³óÇù °¡¸ÍÁ¡ Data Load");
+   if (( fp=fopen( "/app/fund/fb/reg_fund/reg_card/nhc.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,500,fp ) != NULL )
+      {
+          strncpy(chck,&buffer[0],2);
+          if (strncmp(chck, "2M", 2) == 0)
+          {
+                strncpy(hv_join_store_num, &buffer[2], 9);
+                strncpy(hv_cmpn_num, &buffer[11], 10);
+                puts(hv_cmpn_num);
+                puts(&buffer[11]);
+                strncpy(hv_cmpn_name, &buffer[21], 30);
+                inx = inx + 1; 
+                printf("%dth Data Processing °¡¸ÍÁ¡ : %s Insert!!\n", inx, hv_join_store_num); 
+                EXEC SQL
+                     INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'N',                :hv_cmpn_num,      :hv_cmpn_name,
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                  );
+
+                if(SQLCODE == SQL_DUP)
+                {
+                    printf("%dth Data Delete °¡¸ÍÁ¡ : %s!!\n", inx, hv_join_store_num); 
+                    EXEC SQL
+                         DELETE FROM JATB407
+                         WHERE  CARD_BANK = 'N'
+                         AND    CMPN_NUM = :hv_cmpn_num;
+
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("³óÇù °Å·¡Ã³ : cmpn_num : %s Delete error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                      ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                        JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                        UPD_DATE,           REG_DATE
+                                      )
+                               VALUES ( 'N',                :hv_cmpn_num,      :hv_cmpn_name,
+                                        RTRIM(:hv_join_store_num), 'Y',               'demon',
+                                        SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                      );
+
+                    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {    
+                        printf("³óÇù °Å·¡Ã³ : cmpn_num : %s Insert2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                    printf("³óÇù °Å·¡Ã³ : cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+/*
+                EXEC SQL UPDATE TV310
+*/
+                EXEC SQL UPDATE PMVT001
+                         SET    LGCARD = 'Y'
+                         WHERE  BSCD   = :hv_cmpn_num;
+
+                if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                    printf("³óÇù PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+                
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/reg_card/nhc_cmpn_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : nhc.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
+/* ¿ì¸®ÀºÇà °¡¸ÍÁ¡ data load */
+int w_cmpn_load()
+{
+   int inx = 0;
+
+   puts("¿ì¸®ÀºÇà °¡¸ÍÁ¡ Data Load");
+   if (( fp=fopen( "/app/fund/fb/reg_fund/reg_card/wbc.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,500,fp ) != NULL )
+      {
+          strncpy(divs,&buffer[66],1);
+          strncpy(chck,&buffer[0],1);
+          strncpy(hv_join_store_num, &buffer[95], 14);
+          strncpy(hv_cmpn_num, &buffer[13], 10);
+          puts(hv_cmpn_num);
+          puts(&buffer[448]);
+          strncpy(hv_cmpn_name, &buffer[36], 30);
+          inx = inx + 1; 
+
+          if (strncmp(chck, "2", 1) == 0 && strncmp(divs, "2", 1) != 0 )
+          {
+                printf("%dth Data Processing °¡¸ÍÁ¡ : %s Insert!!\n", inx, hv_join_store_num); 
+                EXEC SQL
+                     INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'W',                :hv_cmpn_num,      :hv_cmpn_name,
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                  );
+
+                if(SQLCODE == SQL_DUP)
+                {
+                    printf("%dth Data Delete °¡¸ÍÁ¡ : %s!!\n", inx, hv_join_store_num); 
+                    EXEC SQL
+                         DELETE FROM JATB407
+                         WHERE  CARD_BANK = 'W'
+                         AND    CMPN_NUM = :hv_cmpn_num;
+
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("¿ì¸®ÀºÇà °Å·¡Ã³ : cmpn_num : %s Delete error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                      ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                        JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                        UPD_DATE,           REG_DATE
+                                      )
+                               VALUES ( 'W',                :hv_cmpn_num,      :hv_cmpn_name,
+                                        RTRIM(:hv_join_store_num), 'Y',               'demon',
+                                        SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                      );
+
+                    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {    
+                        printf("¿ì¸®ÀºÇà °Å·¡Ã³ : cmpn_num : %s Insert2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                    printf("¿ì¸®ÀºÇà °Å·¡Ã³ : cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+/*
+                EXEC SQL UPDATE TV310
+*/
+                EXEC SQL UPDATE PMVT001
+                         SET    LGCARD = 'Y'
+                         WHERE  BSCD   = :hv_cmpn_num;
+
+                if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                    printf("LGÄ³ÇÇÅ» PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+                
+            }
+            else if (strncmp(chck, "2", 1) == 0 && strncmp(divs, "2", 1) == 0 )
+            {
+                EXEC SQL UPDATE JATB407
+                         SET    USE_DIVS = 'N'
+                         WHERE  CARD_BANK = 'W'
+                         AND    CMPN_NUM = :hv_cmpn_num;
+
+                if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                   printf("¿ì¸®ÀºÇà °Å·¡Ã³ : cmpn_num : %s update error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                   close(fp);
+                   EXEC SQL ROLLBACK WORK;
+                   return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/reg_card/wbc_cmpn_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : wbc.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+/* Á¦ÀÏÀºÇà °¡¸ÍÁ¡ data load */
+int j_cmpn_load()
+{
+   int inx = 0;
+
+   puts("Á¦ÀÏÀºÇà °¡¸ÍÁ¡ Data Load");
+   if (( fp=fopen( "/app/fund/fb/reg_fund/reg_card/jib.dat","r" )) != NULL )
+   {
+      while ( fgets( buffer,500,fp ) != NULL )
+      {
+          strncpy(chck,&buffer[0],1);
+          strncpy(divs,&buffer[23],1);
+                puts(chck);
+                puts(divs);
+          if (strncmp(chck, "D", 1) == 0 && strncmp(divs, "1", 1) == 0 )
+          {
+                inx = inx + 1; 
+                strncpy(hv_reg_date, &buffer[24], 8); /*½Å±ÔÀÏÀÚ*/
+                strncpy(hv_cmpn_num, &buffer[119], 13); /*»ç¾÷ÀÚ ¹øÈ£ */
+                strncpy(hv_join_store_num, &buffer[7], 11); /*°¡¸ÍÁ¡¹øÈ£*/
+                puts(hv_cmpn_num);
+                strncpy(hv_cmpn_name, &buffer[132], 30);
+
+                printf("%dth Data Processing °¡¸ÍÁ¡ : %s Insert!!\n", inx, hv_join_store_num); 
+                EXEC SQL
+                     INSERT INTO JATB407
+                                  ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                    JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                    UPD_DATE,           REG_DATE
+                                  )
+                           VALUES ( 'J',    RTRIM(LTRIM(:hv_cmpn_num)),    :hv_cmpn_name,
+                                    RTRIM(:hv_join_store_num), 'Y',        'demon',
+                                    SYSDATE,            :hv_reg_date 
+                                  );
+
+                if(SQLCODE == SQL_DUP)
+                {
+                    printf("%dth Data Delete °¡¸ÍÁ¡ : %s!!\n", inx, hv_join_store_num); 
+                    EXEC SQL
+                         DELETE FROM JATB407
+                         WHERE  CARD_BANK = 'J'
+                         AND    CMPN_NUM = RTRIM(LTRIM(:hv_cmpn_num));
+
+                    if(SQLCODE != SQL_OK)
+                    {    
+                        printf("Á¦ÀÏÀºÇà °Å·¡Ã³ : cmpn_num : %s Delete error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+
+                    EXEC SQL
+                         INSERT INTO JATB407
+                                      ( CARD_BANK,          CMPN_NUM,          CMPN_NAME,
+                                        JOIN_STORE_NUM,     USE_DIVS,          UPD_EMPNO,
+                                        UPD_DATE,           REG_DATE
+                                      )
+                               VALUES ( 'J',     RTRIM(LTRIM(:hv_cmpn_num)),      :hv_cmpn_name,
+                                        RTRIM(:hv_join_store_num), 'Y',               'demon',
+                                        SYSDATE,            TO_CHAR(SYSDATE,'YYYYMMDD')
+                                      );
+
+                    if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                    {    
+                        printf("Á¦ÀÏÀºÇà °Å·¡Ã³ : cmpn_num : %s Insert2 error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                        close(fp);
+                        EXEC SQL ROLLBACK WORK;
+                        return FAILURE;
+                    }
+                }
+                else if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                    printf("Á¦ÀÏÀºÇà °Å·¡Ã³ : cmpn_num : %s Insert error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+
+/*
+                EXEC SQL UPDATE TV310
+*/
+                EXEC SQL UPDATE PMVT001
+                         SET    LGCARD = 'Y'
+                         WHERE  BSCD   = RTRIM(LTRIM(:hv_cmpn_num));
+
+                if (SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {
+                    printf("Á¦ÀÏÀºÇà PMS cmpn_num : %s Update Error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                    close(fp);
+                    EXEC SQL ROLLBACK WORK;
+                    return FAILURE;
+                }
+                
+            }
+            /*ÇØÁöÀÇ °æ¿ì*/
+            else if (strncmp(chck, "D", 1) == 0 && strncmp(divs, "9", 1) == 0 )
+            {
+                EXEC SQL UPDATE JATB407
+                         SET    USE_DIVS = 'N',
+                                UPD_DATE = SYSDATE
+                         WHERE  CARD_BANK = 'J'
+                         AND    CMPN_NUM = RTRIM(LTRIM(:hv_cmpn_num));
+
+                if(SQLCODE != SQL_OK && SQLCODE != SQL_NO_DATA)
+                {    
+                   printf("Á¦ÀÏÀºÇà °Å·¡Ã³ : cmpn_num : %s update error : %d\n",hv_cmpn_num, sqlca.sqlcode);
+                   close(fp);
+                   EXEC SQL ROLLBACK WORK;
+                   return FAILURE;
+                }
+            }
+        }
+        system("sh /app/fund/fb/reg_fund/reg_card/jib_cmpn_back.sh");
+    }
+    else 
+    {
+        printf("File Open Error : jib.dat\n");
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}

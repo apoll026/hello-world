@@ -1,0 +1,566 @@
+/********************************************************************/
+/*                                                                  */
+/* 화 일 명 : pc_card_issu_load                                     */
+/*                                                                  */
+/* 작 성 자 : 차 지 영                                              */
+/*                                                                  */
+/* 작 성 일 : 2005. 12. 10.                                         */
+/*                                                                  */
+/********************************************************************/
+/*                                                                  */
+/* 내    용 : LGCard Card Info Data load                            */
+/* 사용Table: FATP200, FATP210, FATP211                             */
+/*                                                                  */
+/********************************************************************/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+char *getenv();
+
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+#define SQL_DUP      -1
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+
+int insert_fatp211();                       /* FATP211 Table Insert */
+int  trim(char *s_org);
+
+EXEC SQL BEGIN DECLARE SECTION;
+
+static  char buffer[155 + 1];
+static  char chck[1 + 1];                   /* 구분자              */  
+static  char card_cmpn[3 + 1];              /* 카드회사구분(001:LGCARD) */  
+static  char data_date[8 + 1];              /* 자료생성일자        */ 
+static  char data_time[6 + 1];              /* 자료생성시간        */ 
+static  char chck_gubn[2 + 1];              /* 발급자료구분(11:fix) */  
+static  char issu_divs[1 + 1];              /* 발급구분(1:신규, 2:재발급) */  
+static  varchar emp_name[50 + 1];           /* 신청자 성명         */  
+
+/* 2010.04.06 이주수수정 이승례요청 */
+/* 구분에 하이패스카드 추가 */
+static  char card_divs[1 + 1];              /* 카드구분(1:법인이용자청구, 2:법이회사, 사업장청구, 3:주유카드 4:하이패스카드) */
+
+static  varchar card_num[16 + 1];           /* 카드번호            */  
+static  char issu_date[8 + 1];              /* 발급일자            */
+static  char fnsh_ym[6 + 1];                /* 유효기간            */
+static  varchar car_num[16 + 1];            /* 차량번호            */
+static  varchar befr_card_num[16 + 1];      /* 기존카드번호        */  
+static  char climt_amt[13 + 1];             /* 한도금액            */  
+static  char card_kind[1 + 1];              /* 카드브랜드(0:Local, 1:Master, 2:Visa, 3:기타) */  
+static  double amt;                         /* 한도금액(number)    */
+static  char limt_amt[2 + 1];               /* 한도금액(코드)      */
+static  char amt_code[2 + 1];               /* 한도금액(코드)수정      */
+static  char resi_num[13 + 1];      		  /* 주민등록번호      */
+
+static  char work_date[8 + 1];              /* 작업일자            */
+static  char work_time[6 + 1];              /* 작업시간            */
+
+static  int seq;                            /* SEQ                 */  
+static  char data_use_yn[1 + 1];            /* 자료사용구분        */ 
+static  int f_int;                          /* 화일 체크           */  
+
+static  char upd_divs[1 + 1];               /* FATP211 반영여부    */ 
+static  varchar upd_msg[200 + 1];           /* FATP211 Table 미반영 MSG */ 
+ 
+static  varchar appl_num[30 + 1];           /* 신청번호            */
+static  char appl_empno[5 + 1];             /* 신청자사번          */
+static  varchar appl_emp_name[20 + 1];      /* 신청자명            */
+static  varchar appl_eng_name[50 + 1];      /* 신청자영문명        */
+static  char bank_code[2 + 1];              /* 은행코드            */
+static  varchar acnt_num[30 + 1];           /* 계좌번호            */
+static  varchar issu_desc[500 + 1];         /* 발급요청사유        */
+static  char pleg_yn[1 + 1];                /* 서약서동의여부      */
+static  varchar appr_num[30 + 1];           /* 신청결재번호        */
+static  char appr_sttu[2 + 1];              /* 결재상태            */
+static  char sbmt_empno[5 + 1];             /* 결재상신자          */
+static  char appr_empno[5 + 1];             /* 결재자              */
+static  char appr_date[16 + 1];             /* 결재일시            */
+static  varchar appl_dept_code[6 + 1];      /* 신청부서            */
+
+char    *uid = "uas/youdpdls@DBSVR30";  
+/* char    *uid = "fa/suioe9z@DBTST01";  */	
+/*char    *uid = "uas/aaa@DBTST04"; */
+
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+FILE *fp;
+
+int main()
+{
+   char f_file[90];
+   char file_nm[9];
+
+   system( "/app/acct/proc/uas/pc_xtcp_get_make_issu");
+   system( "sh /app/acct/fb/card/card_issu_lg/edi_get.sh");
+
+   /* DB Connect */
+   EXEC SQL CONNECT :uid;
+
+   f_int = 0;
+
+   /* System Date/Time Select */
+   EXEC SQL 
+     SELECT TO_CHAR(sysdate, 'YYYYMMDD'), TO_CHAR(sysdate, 'HH24MISS')
+       INTO :work_date, :work_time
+       FROM DUAL;
+   if (SQLCODE != SQL_OK)
+   {
+      printf("System Date Error : %d\n", sqlca.sqlcode);
+      return FAILURE;
+   }
+
+   printf( "work_date   == %s\n,  ", work_date );
+   printf( "work_time   == %s\n,  ", work_time );
+
+   /*화일 수신자료*/
+   if (( fp=fopen( "/app/acct/fb/card/card_issu_lg/lgcardinfo.dat", "r" )) != NULL )
+   {
+      seq = 0;
+
+      strncpy( card_cmpn,"001", 3);
+
+      while ( fgets( buffer,156,fp ) != NULL )
+      {
+         strncpy(chck,&buffer[0],1);
+         if (strncmp(chck, "H", 1) == 0)
+         {
+            f_int = 1;
+            strncpy(data_date, &buffer[22], 8);
+            strncpy(data_time, &buffer[31], 6);
+
+            printf( "chck   == %s,  ", chck );
+            printf( "data_date   == %s,  ", data_date );
+            printf( "data_time   == %s\n", data_time );
+   
+         }
+         else if (strncmp(chck, "D", 1) == 0)
+         {
+            f_int = 1;
+            printf( "chck   == %s\n", chck );
+   
+            VCHINIT(card_num);
+            VCHINIT(befr_card_num);
+            VCHINIT(car_num);
+            VCHINIT(emp_name);
+
+            strncpy( chck_gubn, &buffer[1], 2);
+            strncpy( issu_divs, &buffer[4], 1);
+            strncpy( resi_num, &buffer[6], 13);
+            strncpy( emp_name.arr, &buffer[20], 50);
+            emp_name.len = strlen(emp_name.arr);
+            strncpy( card_divs, &buffer[71], 1);
+            strncpy( card_num.arr, &buffer[73], 16);
+            card_num.len = strlen(card_num.arr);
+            strncpy( issu_date, &buffer[90], 8);
+            strncpy( fnsh_ym, &buffer[99], 6);
+            strncpy( car_num.arr, &buffer[106], 16);
+            car_num.len = strlen(car_num.arr);
+            strncpy( befr_card_num.arr, &buffer[123], 16);
+            befr_card_num.len = strlen(befr_card_num.arr);
+            strncpy( climt_amt, &buffer[140], 13);
+            strncpy( card_kind, &buffer[154], 1);
+
+            printf ( "chck_gubn      == %s\n", chck_gubn     );
+            printf ( "issu_divs      == %s\n", issu_divs     );
+            printf ( "resi_num       == %s\n", resi_num      );
+            printf ( "emp_name       == %s\n", emp_name.arr      );
+            printf ( "card_divs      == %s\n", card_divs     );
+            printf ( "card_num       == %s\n", card_num.arr  );
+            printf ( "issu_date      == %s\n", issu_date     );
+            printf ( "fnsh_ym        == %s\n", fnsh_ym       );
+            printf ( "car_num        == %s\n", car_num.arr   );
+            printf ( "befr_card_num  == %s\n", befr_card_num.arr );
+            printf ( "climt_amt      == %s\n", climt_amt      );
+            printf ( "card_kind      == %s\n", card_kind     );
+   
+            if (strncmp(card_divs, "3", 1) == 0)
+            {
+               /*LG카드는 001로 통일함 주유카드라도..*/
+               strncpy( card_cmpn, "001", 3);
+               /*strncpy( card_cmpn, "003", 3);*/
+            }
+            else
+            {
+               strncpy( card_cmpn, "001", 3);
+            }
+
+            seq = seq + 1;
+
+            VCHINIT(appl_num);
+            VCHINIT(appl_emp_name);
+            VCHINIT(appl_eng_name);
+            VCHINIT(acnt_num);
+            VCHINIT(issu_desc);
+            VCHINIT(appr_num);
+            VCHINIT(appl_dept_code);
+            
+
+            /** FATP210(법인카드발급요청 Table) Select  **/
+            EXEC SQL
+               SELECT APPL_NUM     , APPL_EMPNO   , APPL_EMP_NAME,
+                      APPL_ENG_NAME, BANK_CODE    , ACNT_NUM     ,
+                      ISSU_DESC    , PLEG_YN      , APPR_NUM     ,
+                      APPR_STTU    , SBMT_EMPNO   , APPR_EMPNO   ,
+                      APPR_DATE    , APPL_DEPT_CODE
+                 INTO :appl_num     , :appl_empno   , :appl_emp_name,
+                      :appl_eng_name, :bank_code    , :acnt_num ,
+                      :issu_desc    , :pleg_yn      , :appr_num ,
+                      :appr_sttu    , :sbmt_empno   , :appr_empno   ,
+                      :appr_date    , :appl_dept_code
+                 FROM FATP210
+                WHERE RESI_NUM       = RTRIM(:resi_num)
+                  AND ISSU_DIVS      = '0' || RTRIM(:issu_divs)
+                  AND CARD_CMPN      = RTRIM(:card_cmpn) 
+                  AND CARD_DIVS      = '0' || RTRIM(:card_divs)
+                  AND APPL_STTU      = '03' ;
+   
+            if(SQLCODE != SQL_OK )
+            {
+            EXEC SQL
+               SELECT APPL_NUM     , APPL_EMPNO   , APPL_EMP_NAME,
+                      APPL_ENG_NAME, BANK_CODE    , ACNT_NUM     ,
+                      ISSU_DESC    , PLEG_YN      , APPR_NUM     ,
+                      APPR_STTU    , SBMT_EMPNO   , APPR_EMPNO   ,
+                      APPR_DATE    , APPL_DEPT_CODE
+                 INTO :appl_num     , :appl_empno   , :appl_emp_name,
+                      :appl_eng_name, :bank_code    , :acnt_num ,
+                      :issu_desc    , :pleg_yn      , :appr_num ,
+                      :appr_sttu    , :sbmt_empno   , :appr_empno   ,
+                      :appr_date    , :appl_dept_code
+                 FROM FATP210
+                WHERE appl_emp_name  = TRIM(:emp_name)
+                  AND ISSU_DIVS      = '0' || RTRIM(:issu_divs)
+                  AND CARD_CMPN      = RTRIM(:card_cmpn)
+                  AND CARD_DIVS      = '0' || RTRIM(:card_divs)
+                  AND APPL_STTU      = '03' ;
+
+            if(SQLCODE != SQL_OK )
+            {
+
+               VCHINIT(upd_msg);
+               strcpy( upd_divs, "N");
+               strcpy( upd_msg.arr, "FATP210 Select ERROR");
+               upd_msg.len = strlen(upd_msg.arr);
+
+               if ( insert_fatp211() == FAILURE )
+               {
+                  close(fp);
+                  EXEC SQL ROLLBACK WORK;
+                  return FAILURE;
+               }
+
+               printf("%s : %d, %s\n", upd_msg.arr, sqlca.sqlcode, card_num.arr);
+               continue;
+            }
+            }
+            appl_num.len = strlen(appl_num.arr);
+            appl_emp_name.len = strlen(appl_emp_name.arr);
+            appl_eng_name.len = strlen(appl_eng_name.arr);
+            acnt_num.len = strlen(acnt_num.arr);
+            issu_desc.len = strlen(issu_desc.arr);
+            appr_num.len = strlen(appr_num.arr);
+            appl_dept_code.len = strlen(appl_dept_code.arr);
+
+						
+            /** 한도금액 Setting  **/
+            EXEC SQL
+               SELECT TO_NUMBER(:climt_amt)
+                 INTO :amt
+                 FROM DUAL ;
+                 
+            strcpy(amt_code, "00");
+            
+            EXEC SQL
+            	 SELECT CODE
+            	 into :amt_code
+            	 FROM FATY500
+            	 WHERE CLSS = '31'
+            	   AND SUB_CODE = TO_NUMBER(:climt_amt) / 10000;
+            
+            if(SQLCODE == SQL_NO_DATA)
+            {
+							strcpy(limt_amt, "11");            
+            }
+            else
+            {
+            	strcpy(limt_amt, amt_code);
+            }
+            
+            /** 2007년이전의 법인명의로 발급된 카드들은 주민번호 안들어옴**/            
+            if(trim(resi_num) == '\0')
+            {
+            	EXEC SQL
+               SELECT resi_num
+                 INTO :resi_num
+                 FROM FATP200
+                 WHERE CARD_NUM = befr_card_num ;            
+            }
+            
+            /********************************
+            EXEC SQL
+               SELECT TO_NUMBER(:climt_amt)
+                 INTO :amt
+                 FROM DUAL ;
+            if ( amt <= 10000000 )
+            {
+               strcpy( limt_amt, "01");
+            }
+            else if ( 10000000 < amt <= 15000000 )
+            {
+               strcpy( limt_amt, "02");
+            }
+            else if ( 15000000 < amt <= 20000000 )
+            {
+               strcpy( limt_amt, "03");
+            }
+            else if ( 20000000 < amt <= 30000000 )
+            {
+               strcpy( limt_amt, "04");
+            }
+            else if ( 30000000 < amt <= 50000000 )
+            {
+               strcpy( limt_amt, "05");
+            }
+            else if ( 50000000 < amt )
+            {
+               strcpy( limt_amt, "06");
+            }
+**************************************/
+            /** FATP210(법인카드발급요청 Table) Update  **/
+            EXEC SQL
+               UPDATE FATP210
+                  SET APPL_STTU = '04',
+                      LIMT_AMT  = RTRIM(:limt_amt),
+                      CARD_NUM  = RTRIM(:card_num)
+                WHERE RESI_NUM  = RTRIM(:resi_num)
+                  AND ISSU_DIVS = '0' || RTRIM(:issu_divs)
+                  AND CARD_CMPN = RTRIM(:card_cmpn)
+                  AND CARD_DIVS = '0' || RTRIM(:card_divs)
+                  AND APPL_STTU = '03' ;
+
+            if(SQLCODE != SQL_OK )
+            {
+            EXEC SQL
+               UPDATE FATP210
+                  SET APPL_STTU = '04',
+                      LIMT_AMT  = RTRIM(:limt_amt),
+                      CARD_NUM  = RTRIM(:card_num)
+                WHERE appl_emp_name = TRIM(:emp_name)
+                  AND ISSU_DIVS = '0' || RTRIM(:issu_divs)
+                  AND CARD_CMPN = RTRIM(:card_cmpn)
+                  AND CARD_DIVS = '0' || RTRIM(:card_divs)
+                  AND APPL_STTU = '03' ;
+
+            if(SQLCODE != SQL_OK )
+            {
+               printf("FATP210 Update ERROR : %d, %s\n", sqlca.sqlcode, card_num.arr);
+               close(fp);
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+            }
+            }
+
+            /** FATP200(Master Table) Insert  **/
+            EXEC SQL
+               INSERT INTO FATP200 ( RESI_NUM     , CARD_NUM     ,
+                                     APPL_NUM     , APPL_EMPNO   ,
+                                     APPL_EMP_NAME, APPL_ENG_NAME,
+                                     ISSU_DIVS    , CARD_CMPN    ,
+                                     CARD_DIVS    , FNSH_YM      ,
+                                     LIMT_AMT     , BANK_CODE    ,
+                                     ACNT_NUM     , ISSU_DESC    ,
+                                     PLEG_YN      , CARD_STTU    ,
+                                     TAKE_DATE    , RETN_DATE    ,
+                                     APPR_NUM     , APPR_STTU    ,
+                                     SBMT_EMPNO   , APPR_EMPNO   ,
+                                     APPR_DATE    , UPD_EMPNO    ,
+                                     UPD_DATE     , UPD_ID       ,
+                                     EMP_NO       , DEPT_CODE    ,
+                                     ISSU_DATE    )
+                            VALUES ( RTRIM(:resi_num), 
+                                     RTRIM(:card_num),
+                                     RTRIM(:appl_num),
+                                     RTRIM(:appl_empno),
+                                     RTRIM(:appl_emp_name),
+                                     RTRIM(:appl_eng_name),
+                                     '0'||RTRIM(:issu_divs),
+                                     RTRIM(:card_cmpn),
+                                     '0'||RTRIM(:card_divs),
+                                     RTRIM(:fnsh_ym),
+                                     RTRIM(:limt_amt),
+                                     RTRIM(:bank_code),
+                                     RTRIM(:acnt_num),
+                                     RTRIM(:issu_desc),
+                                     RTRIM(:pleg_yn),
+                                     '01',
+                                     '',
+                                     '',
+                                     RTRIM(:appr_num),
+                                     RTRIM(:appr_sttu),
+                                     RTRIM(:sbmt_empno),
+                                     RTRIM(:appr_empno),
+                                     RTRIM(:appr_date),
+                                     '',
+                                     SYSDATE,
+                                     '',
+                                     RTRIM(:appl_empno),
+                                     RTRIM(:appl_dept_code),
+                                     RTRIM(:issu_date) ) ;
+
+            if(SQLCODE == SQL_DUP)
+            {
+               VCHINIT(upd_msg);
+               strcpy(upd_divs, "N");
+               strcpy(upd_msg.arr, "FATP200 Insert Dup");
+               upd_msg.len = strlen(upd_msg.arr);
+
+               if ( insert_fatp211() == FAILURE )
+               {
+                  close(fp);
+                  EXEC SQL ROLLBACK WORK;
+                  return FAILURE;
+               }
+
+               printf("%s : %d, %s\n", upd_msg.arr, sqlca.sqlcode, card_num.arr);
+               continue;
+            }
+            else if(SQLCODE != SQL_OK )
+            {
+               printf("FATP200 Insert ERROR : %d, %s, %s\n", sqlca.sqlcode, sqlca.sqlerrm, card_num.arr);
+               close(fp);
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+            }
+
+            VCHINIT(upd_msg);
+            strcpy(upd_divs, "Y");
+            strcpy(upd_msg.arr, "OK");
+            upd_msg.len = strlen(upd_msg.arr);
+
+            if ( insert_fatp211() == FAILURE )
+            {
+               close(fp);
+               EXEC SQL ROLLBACK WORK;
+               return FAILURE;
+            }
+
+         }
+         else if (strncmp(chck, "T", 1) == 0)
+         {
+            f_int =1; 
+         }
+     } 
+   }
+   else
+   {
+      f_int = 0;
+      printf("lgcardinfo.dat 파일을 찾을수 없습니다!\n");
+      printf( "f_int   == %d\n", f_int);
+   }
+   close(fp);
+
+   /***화일이 없을 때****/
+   if (f_int == 0)
+   {
+       printf( "f_int   == %d\n", f_int);
+       /*  system( "rm /app/acct/fb/card/card_use_lg/lgusedata.dat");  */
+       system( "rm /app/acct/fb/card/card_issu_lg/lgcardinfo.dat");
+   }
+   else
+   {
+       printf( "f_int   == %d\n", f_int);
+       system( "sh /app/acct/fb/card/card_issu_lg/lgdata_bk.sh"); 
+   }
+   EXEC SQL COMMIT;
+   return SUCCESS;
+}
+
+int  trim(char *s_org)
+{
+   int i_len, ii=0, i_nujuk=0, i_cnt=0;
+   char *c_rtn;
+   int i_start=0, i_end=0;
+   
+   i_len = strlen ( s_org );
+   
+   for( ii = 0;ii <= i_len - 1 ;ii++)
+    {
+      if ( s_org[ii] != 32 )
+         { i_start = ii;
+           break;
+         }
+    }
+    
+
+   for( ii = i_len - 1;ii >= 0 ;ii--)
+    {
+      if ( s_org[ii] != 32 )
+         { 
+           i_end = ii; 
+           break;
+         }
+
+    }
+
+   c_rtn = (char *)malloc( sizeof( char *)*(i_end - i_start ));
+   memset(c_rtn,0x00, sizeof( char *)*(i_end - i_start ));
+
+   for ( ii = i_start; ii <= i_end ; ii++)
+   {
+      c_rtn[i_cnt] = s_org[ii];
+      i_cnt++;
+   }
+   
+   memset(s_org,0x00,sizeof(s_org));
+   strcpy(s_org,c_rtn);
+   
+   return 0;
+}
+
+int insert_fatp211()
+{
+   /** FATP211(Log Table) Insert  **/
+   EXEC SQL
+      INSERT INTO FATP211 ( CARD_CMPN    , WORK_DATE    , WORK_TIME    ,
+                            WORK_SEQ     , DATA_DATE    , DATA_TIME    ,
+                            RESI_NUM     , CARD_NUM     , ISSU_DIVS    ,
+                            CHK_GUBN    , EMP_NAME     , CARD_DIVS    ,
+                            ISSU_DATE    , FNSH_YM      , CAR_NUM      ,
+                            BEFR_CARD_NUM, LIMT_AMT     , CARD_KIND    ,
+                            UPD_DIVS     , UPD_MSG      , UPD_DATE     )
+                   VALUES ( RTRIM(:card_cmpn),
+                            RTRIM(:work_date),
+                            RTRIM(:work_time),
+                            NVL(:seq, 1),
+                            RTRIM(:data_date),
+                            RTRIM(:data_time),
+                            RTRIM(:resi_num),
+                            RTRIM(:card_num),
+                            RTRIM(:issu_divs),
+                            RTRIM(:chck_gubn),
+                            RTRIM(:emp_name),
+                            RTRIM(:card_divs),
+                            RTRIM(:issu_date),
+                            RTRIM(:fnsh_ym),
+                            RTRIM(:car_num),
+                            RTRIM(:befr_card_num),
+                            RTRIM(:climt_amt),
+                            RTRIM(:card_kind),
+                            RTRIM(:upd_divs),
+                            RTRIM(:upd_msg),
+                            sysdate     ) ;
+
+   if(SQLCODE != SQL_OK )
+   {
+      printf("FATP211 Insert ERROR : %d, %s\n", sqlca.sqlcode, card_num.arr);
+      return FAILURE;
+   }
+ 
+   return SUCCESS;
+}

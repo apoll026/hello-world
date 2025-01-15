@@ -1,0 +1,302 @@
+/********************************************************************/
+/*                                                                  */
+/* 화 일 명 : pc_b999_load                                          */
+/*                                                                  */
+/* 작 성 자 :                                                       */
+/*                                                                  */
+/* 작 성 일 :                                                       */
+/*                                                                  */
+/********************************************************************/
+/*                                                                  */
+/* 내    용 : FirmBanking Data load                                 */
+/* 사용Table: JATB999                                               */
+/*                                                                  */
+/********************************************************************/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <string.h>
+char *getenv();
+
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+#define SQL_DUP      -1
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+
+EXEC SQL BEGIN DECLARE SECTION;
+   static  char buffer[256];
+   static  char edi_id[6 + 1];                /* EDI ID            */ 
+   static  varchar msg_id[20 + 1];            /* 거래처번호               */  
+   static  varchar subj[30 + 1];            /* 계좌번호                 */  
+   static  char f_size[10 + 1];                 /* 화일 size                */  
+   static  int seq;                             /* SEQ                      */  
+   static  char trns_date[8 + 1];               /* 전송일자                 */  
+   static  varchar recv_date[15 + 1];           /* 수신일자                */  
+   static  char recv_yn[1 + 1];                 /* 수신여부                */ 
+   static  char divs[1 + 1];                    /* 식별코드                 */ 
+   static  char head_divs[7 + 1];               /* 식별코드                 */ 
+   static  char subj_divs[6 + 1];               /* 식별코드                 */ 
+   static  char foot_divs[7 + 1];               /* 식별코드                 */ 
+   static  char id_divs[13 + 1];                /* 식별코드                 */ 
+   static  char line_divs[1 + 1];               /* 식별코드                 */ 
+
+   char    *uid = "ja/j7bhjd2@DBSTD99";	
+
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+FILE *fp;
+
+int main()
+{
+   char f_file[90];
+   char file_nm[9];
+   int chck = 1;
+
+   system( "rm /app/fund/fb/forte_edi/lst");
+   system( "rm /app/fund/fb/forte_edi/sum");
+
+   system( "/app/fund/proc/pc_xtcp_make");
+
+   system( "sh /app/fund/fb/forte_edi/edi_lst.sh");
+   system( "sh /app/fund/fb/forte_edi/edi_sum.sh");
+
+   /* DB Connect */
+   EXEC SQL CONNECT :uid;
+
+   /*화일 수신자료*/
+   if (( fp=fopen( "/app/fund/fb/forte_edi/lst", "r" )) != NULL )
+   {
+      seq = 0;
+      while ( fgets( buffer,255,fp ) != NULL )
+      {
+         VCHINIT(msg_id); 
+         VCHINIT(subj); 
+         VCHINIT(recv_date); 
+         strncpy( head_divs, &buffer[30], 7);
+         strncpy( subj_divs, &buffer[20], 6);
+         strncpy( foot_divs, &buffer[22], 7);
+         strncpy( id_divs, &buffer[1], 13);
+         strncpy( line_divs, &buffer[0], 1);
+	 strncpy( f_size, &buffer[65],10 );
+
+            printf( "head_divs   == %s\n", head_divs );
+            printf( "foot_divs   == %s\n", foot_divs );
+            printf( "id_divs   == %s\n", id_divs );
+            printf( "line_divs   == %s\n", line_divs );
+         if ( strcmp( head_divs, "MESSAGE" ) == 0 )
+         {
+         }
+         else if ( strcmp( subj_divs, "MSG-ID" ) == 0 )
+         {
+         }
+         else if ( strcmp( id_divs, "USER-FBLDC000" ) == 0 )
+         {
+         }
+         else if ( strcmp( line_divs, "-" ) == 0 )
+         {
+         }
+         else if ( strcmp( foot_divs, "MESSAGE" ) == 0 )
+         {
+         }
+         else if ( strcmp( f_size, "         0" ) == 0 )
+         {
+         }
+         else
+         {
+            seq = seq + 1;
+	    strncpy( recv_yn, &buffer[0],1 );
+	    strncpy( edi_id, &buffer[4],6 );
+	    strncpy( msg_id.arr, &buffer[13],20 );
+	    strncpy( subj.arr, &buffer[34],30 );
+	    strncpy( recv_date.arr, &buffer[76],15 );
+            msg_id.len = strlen(msg_id.arr);
+            subj.len = strlen(subj.arr);
+            recv_date.len = strlen(recv_date.arr);
+ 
+            if ( strcmp( recv_yn, "X" ) == 0 )
+	        strcpy( recv_yn, "Y");
+
+            printf( "recv_yn   == %s\n", recv_yn );
+            printf( "edi_id    == %s\n", edi_id );
+            printf( "msg_id    == %s\n", msg_id.arr );
+            printf( "subj      == %s\n", subj.arr );
+            printf( "f_size    == %d\n",  f_size );
+            printf( "recv_date  == %s\n", recv_date.arr );
+
+            EXEC SQL 
+               INSERT INTO JATB999
+                     ( GUBUN, EDI_ID,  MSG_ID, SUBJ,
+                       F_SIZE, TRNS_DATE,   RECV_DATE, 
+                       RECV_YN, UPD_EMPNO, UPD_DATE)
+               VALUES ( '01', :edi_id, RTRIM(:msg_id), RTRIM(:subj),
+                        to_number(:f_size), '', RTRIM(:recv_date),
+                       :recv_yn, '', SYSDATE
+                      );
+             if(SQLCODE == SQL_DUP)
+               {
+                       EXEC SQL UPDATE JATB999 SET
+                                RECV_YN   = :recv_yn,
+                                SUBJ      = RTRIM(:subj),
+                                F_SIZE    = to_number(:f_size),
+                                TRNS_DATE = '',
+                                RECV_DATE = RTRIM(:recv_date),
+                                UPD_DATE  = sysdate
+                            WHERE GUBUN        = '01'
+                            AND   EDI_ID       = :edi_id
+                            AND   MSG_ID       = RTRIM(:msg_id);
+                }
+              else if(SQLCODE != SQL_OK ){
+                       printf("JATB999 INSERT 01  ERROR : %d\n",sqlca.sqlcode);
+                       close(fp);
+                       EXEC SQL ROLLBACK WORK;
+                       return FAILURE;
+                }
+            /*
+            if ( chck == 1 )
+            {
+               strcpy( file_nm, curt_date );
+               file_nm[8] = '\0';
+               chck == 2;
+            }
+            */
+         }
+
+        strcpy( recv_yn, "" );
+	strcpy( edi_id, ""  );
+	strcpy( f_size, ""  );
+
+      }
+   }
+   else
+      printf("lst 파일을 찾을수 없습니다!\n");
+
+   close(fp);
+
+
+   /*화일 송신자료*/
+   if (( fp=fopen( "/app/fund/fb/forte_edi/sum", "r" )) != NULL )
+   {
+      seq = 0;
+      while ( fgets( buffer,255,fp ) != NULL )
+      {
+         VCHINIT(msg_id); 
+         VCHINIT(subj); 
+         VCHINIT(recv_date); 
+         strncpy( head_divs, &buffer[31], 7);
+         strncpy( subj_divs, &buffer[18], 6);
+         strncpy( foot_divs, &buffer[20], 7);
+         strncpy( id_divs, &buffer[1], 13);
+         strncpy( line_divs, &buffer[0], 1);
+
+         if ( strcmp( head_divs, "SUMMARY" ) == 0 )
+         {
+         }
+         else if ( strcmp( subj_divs, "MSG_ID" ) == 0 )
+         {
+         }
+         else if ( strcmp( id_divs, "USER-FBLDC000" ) == 0 )
+         {
+         }
+         else if ( strcmp( line_divs, "-" ) == 0 )
+         {
+         }
+         else if ( strcmp( foot_divs, "MESSAGE" ) == 0 )
+         {
+         }
+         else
+         {
+            seq = seq + 1;
+	    strncpy( recv_yn, &buffer[92],1 );
+	    strncpy( edi_id, &buffer[2],6 );
+	    strncpy( msg_id.arr, &buffer[11],20 );
+	    strncpy( subj.arr, &buffer[32],30 );
+	    strncpy( f_size, &buffer[63],10 );
+	    strncpy( trns_date, &buffer[74],8 );
+	    strncpy( recv_date.arr, &buffer[83],8 );
+            msg_id.len = strlen(msg_id.arr);
+            subj.len = strlen(subj.arr);
+            recv_date.len = strlen(recv_date.arr);
+ 
+            if ( strcmp( recv_date.arr, "********" ) == 0 )
+	        strcpy( recv_yn, "N");
+
+
+            printf( "recv_yn   == %s\n", recv_yn );
+            printf( "edi_id    == %s\n", edi_id );
+            printf( "msg_id    == %s\n", msg_id.arr );
+            printf( "subj      == %s\n", subj.arr );
+            printf( "f_size    == %d\n",  f_size );
+            printf( "recv_date  == %s\n", recv_date.arr );
+
+            EXEC SQL 
+               INSERT INTO JATB999
+                     ( GUBUN, EDI_ID,  MSG_ID, SUBJ,
+                       F_SIZE, TRNS_DATE,   RECV_DATE, 
+                      RECV_YN, UPD_EMPNO, UPD_DATE)
+               VALUES ( '02', :edi_id, RTRIM(:msg_id), RTRIM(:subj),
+                        to_number(:f_size), :trns_date, RTRIM(:recv_date),
+                       :recv_yn, '', SYSDATE
+                      );
+             if(SQLCODE == SQL_DUP)
+               {
+                       EXEC SQL UPDATE JATB999 SET
+                                RECV_YN   = :recv_yn,
+                                SUBJ      = RTRIM(:subj),
+                                F_SIZE    = to_number(:f_size),
+                                TRNS_DATE = :trns_date,
+                                RECV_DATE = RTRIM(:recv_date),
+                                UPD_DATE  = sysdate
+                            WHERE GUBUN        = '02'
+                            AND   EDI_ID       = :edi_id
+                            AND   MSG_ID       = RTRIM(:msg_id);
+                }
+              else if(SQLCODE != SQL_OK ){
+                       printf("JATB999 INSERT 02 ERROR : %d\n",sqlca.sqlcode);
+                       close(fp);
+                       EXEC SQL ROLLBACK WORK;
+                       return FAILURE;
+                }
+          /*
+            if ( chck == 1 )
+            {
+               strcpy( file_nm, curt_date );
+               file_nm[8] = '\0';
+               chck == 2;
+            }
+         */
+         }
+
+        strcpy( recv_yn, "" );
+	strcpy( edi_id, ""  );
+	strcpy( f_size, ""  );
+        strcpy( trns_date, "" );
+
+      }
+   }
+   else
+      printf("sum 파일을 찾을수 없습니다!\n");
+
+   close(fp);
+
+
+  /*
+   strcpy( f_file,"mv /app/fund/fb/reg_result/FBS_CHB.dat /app/fund/fb/reg_result/" );
+   strcat( f_file, "chb_" ); 
+   strcat( f_file, file_nm ); 
+   strcat( f_file, ".dat" );
+   printf( "full file name %s\n", f_file );
+   system( f_file );
+  */
+   system( "rm /app/fund/fb/forte_edi/lst");
+   system( "rm /app/fund/fb/forte_edi/sum");
+
+   EXEC SQL COMMIT;
+   return SUCCESS;
+}

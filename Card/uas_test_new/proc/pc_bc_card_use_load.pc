@@ -1,0 +1,325 @@
+/********************************************************************/
+/*                                                                  */
+/* 화 일 명 : pc_bc_card_use_load                                   */
+/*                                                                  */
+/* 작 성 자 : 이용걸                                                */
+/*                                                                  */
+/* 작 성 일 : 2015.09.04                                            */
+/*                                                                  */
+/********************************************************************/
+/*                                                                  */
+/* 내    용 : FirmBanking Data load                                 */
+/* 사용Table: BCTP102 ( 테스트 DB는 BCTP201                         */
+/*                                                                  */
+/********************************************************************/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <string.h>
+char *getenv();
+
+#define SQLCODE      sqlca.sqlcode
+#define SUCCESS      0
+#define FAILURE      -1
+#define SQL_OK       0
+#define SQL_NO_DATA  1403
+#define SQL_DUP      -1
+#define VCHINIT(vchar) memset(&(vchar),0x00,sizeof((vchar)))
+
+EXEC SQL BEGIN DECLARE SECTION;
+   static  char buffer[650];
+   static  char chck[1 + 1];                   /* 구분자              */  
+   static  char card_cmpn[3 + 1];              /* 카드회사구분        */  
+   static  char card_gubn[1 + 1];              /* 카드구분            */  
+   static  char card_kind[1 + 1];              /* 카드구분            */  
+   static  char recp_date[8 + 1];              /* 접수일자            */  
+   static  char card_slip_num[13 + 1];         /* 전표번호(카드)      */ 
+   static  char rqst_num[10 + 1];              /* 청구고객번호        */  
+   static  char dome_divs[1 + 1];              /* 거래구분(국/외)     */  
+   static  varchar card_num[16 + 1];           /* 카드번호            */  
+   static  char use_date[8 + 1];               /* 사용일자            */  
+   static  char join_stor_num[10 + 1];         /* 가맹점번호    13->10  */  
+   static  char cmpn_num[10 + 1];              /* 사업자 번호         */  
+   static  char sign_use_amt[1 + 1];           /* 사용금액 부호       */  
+   static  char use_amt[13 + 1];               /* 사용금액            */  
+   static  char sign_vat[1 + 1];               /* 부가세부호          */  
+   static  char vat[13 + 1];                   /* 부가세              */  
+   static  char sign_serv_amt[1 + 1];          /* 봉사료부호          */  
+   static  char serv_amt[13 + 1];              /* 봉사료금액          */  
+   static  char sign_forn_amt[1 + 1];          /* 외화부호            */  
+   static  char forn_amt[13 + 1];              /* 외화금액            */  
+   static  char curc_code[4 + 1];              /* 통화코드            */  
+   static  char sign_date[8 + 1];               /* 결재일자            */  
+   static  char plan_date[8 + 1];               /* 입금예정일자        */  
+   static  char reco_num[10 + 1];              /* 승인번호            */  
+   static  char reco_date[8 + 1];              /* 승인일자            */  
+   static  char reco_time[6 + 1];              /* 승인시간            */  
+   static  char rqst_zip[8 + 1];               /* 청구지우편번호      */  
+   static  varchar join_stor_name[40 + 1];     /* 가맹점명            */  
+   static  varchar join_repr[12 + 1];          /* 가맹점대표자        */  
+   static  varchar join_addr1[70 + 1];         /* 가맹점주소1         */  
+   static  varchar join_addr2[100 + 1];        /* 가맹점주소2         */  
+   static  varchar join_zip[8 + 1];            /* 가맹점우편번호      */  
+   static  varchar join_tel[19 + 1];           /* 가맹점전화번호      */  
+   static  varchar join_cond[20 + 1];          /* 가맹점업태          */  
+   static  char    join_type_code[3 + 1];      /* 가맹점업종코드      */  
+   static  varchar join_type[50 + 1];          /* 가맹점업종명        */  
+   static  char exhg_amt[13 + 1];              /* 승인시 환율         */  
+   static  char ctry_code[4 + 1];              /* 국가코드            */  
+   static  varchar ctry_name[50 + 1];          /* 국가명              */  
+   static  char pre_recp_date[8 + 1];          /* 원전표접수일자      */ 
+   static  char pre_card_slip[13 + 1];         /* 원전표전표번호      */ 
+   static  char recp_bank_code[5 + 1];         /* 접수은행코드        */ 
+   static  char recp_bran[22 + 1];             /* 접수은행명          */ 
+   static  char cmt_num[4 + 1];                /* cmt기업번호         */ 
+   static  char data_date[8 + 1];              /* 자료생성일자        */ 
+   static  int seq;                            /* SEQ                 */  
+   static  char data_use_yn[1 + 1];            /* 자료사용구분        */ 
+   static  varchar rest_data[56 + 1];          /* 남은 자료들         */  
+   static  int f_int;                          /* 화일 체크           */  
+  
+ char    *uid = "uas/youdpdls@DBSVR30";   
+/*   char    *uid = "fa/suioe9z@DBSTD24"; */
+/*   char    *uid = "uas/aaa@DBTST04";    */    /*테스트디비용*/  
+
+EXEC SQL END DECLARE SECTION;
+
+EXEC SQL INCLUDE sqlca.h;
+
+FILE *fp;
+
+int main()
+{
+   char f_file[90];
+   char file_nm[9];
+/*
+   system( "rm /app/acct/fb/card/card_use_lg/lgusedata.dat");
+*/
+
+/* system( "/app/acct/proc/uas/pc_xtcp_get_make");  */ 
+ system( "sh /app/acct/fb/card/card_use_bc/edi_get.sh");   
+/* system( "sh /app/acct/fb/card_test/card_use_bc/edi_get.sh");   /*테스트디비용*/  
+
+ /*   DB Connect */
+   EXEC SQL CONNECT :uid;
+
+   f_int = 0;
+
+   /*화일 수신자료*/
+   if (( fp=fopen( "/app/acct/fb/card/card_use_bc/BCUSEDATA.dat", "r" )) != NULL )   
+/* if (( fp=fopen( "/app/acct/fb/card_test/card_use_bc/BCUSEDATA.dat", "r" )) != NULL )  */ /*테스트디비용*/ 
+ {
+      seq = 0;
+      while ( fgets( buffer,650,fp ) != NULL )
+      {
+        strncpy(chck,&buffer[0],1);
+      if (strncmp(chck, "H", 1) == 0)
+      {
+         f_int = 1;
+         seq = 0;
+         strncpy(data_date,&buffer[22],8);
+         
+      }
+      else if (strncmp(chck, "D", 1) == 0)
+      {
+         f_int = 1;
+         printf( "chck   == %s\n", chck );
+
+         VCHINIT(card_num); 
+         VCHINIT(join_stor_name);  
+         VCHINIT(join_repr); 
+         VCHINIT(join_addr1);  
+         VCHINIT(join_addr2);  
+         VCHINIT(join_zip); 
+         VCHINIT(join_tel); 
+         VCHINIT(join_cond);  
+         VCHINIT(join_type);  
+         VCHINIT(ctry_name);  
+         VCHINIT(rest_data);  
+
+         strncpy( card_cmpn,"002", 3);    /*BC카드*/ 
+         strncpy( card_gubn, &buffer[2], 1);
+         strncpy( recp_date, &buffer[4], 8);
+         strncpy( card_slip_num, &buffer[13], 13);
+         strncpy( rqst_num, &buffer[27], 10);
+         strncpy( rqst_zip, &buffer[38], 8);
+         strncpy( dome_divs, &buffer[47], 1);
+         strncpy( dome_divs, &buffer[47], 1);
+	 strncpy( card_num.arr, &buffer[49],16 );
+         card_num.len = strlen(card_num.arr);
+         strncpy( use_date, &buffer[66], 8);
+         strncpy( join_stor_num, &buffer[75], 10);
+	 strncpy( join_stor_name.arr, &buffer[86],40 );
+         join_stor_name.len = strlen(join_stor_name.arr);
+         strncpy( cmpn_num, &buffer[127], 10);
+	 strncpy( join_repr.arr, &buffer[138],12 );
+         join_repr.len = strlen(join_repr.arr);
+	 strncpy( join_addr1.arr, &buffer[151],70 );
+         join_addr1.len = strlen(join_addr1.arr);
+	 strncpy( join_addr2.arr, &buffer[222],100 );
+         join_addr2.len = strlen(join_addr2.arr);
+	 strncpy( join_zip.arr, &buffer[323],8 );
+         join_zip.len = strlen(join_zip.arr);
+	 strncpy( join_tel.arr, &buffer[332],19 );
+         join_tel.len = strlen(join_tel.arr);
+         /*strncpy( join_cond,"X", 1);*/
+         strncpy( join_type_code, &buffer[352], 3);
+	 strncpy( join_type.arr,  &buffer[356], 50);
+         join_type.len = strlen(join_type.arr);
+         strncpy( sign_use_amt, &buffer[407], 1);
+         strncpy( use_amt, &buffer[409], 13);
+         strncpy( sign_vat, &buffer[423], 1);
+         strncpy( vat, &buffer[425], 13);
+         strncpy( sign_serv_amt, &buffer[439], 1);
+         strncpy( serv_amt, &buffer[441], 13);
+         strncpy( sign_forn_amt, &buffer[455], 1);
+         strncpy( forn_amt, &buffer[457], 13);
+         strncpy( curc_code, &buffer[471], 3);
+         strncpy( ctry_code, &buffer[475], 3);
+	 strncpy( ctry_name.arr,  &buffer[479], 50);
+         ctry_name.len = strlen(ctry_name.arr);
+         strncpy( sign_date, &buffer[530], 8);
+         strncpy( plan_date, &buffer[539], 8);
+         strncpy( reco_num, &buffer[548], 8);
+         strncpy( reco_date, &buffer[557], 8);
+         strncpy( reco_time, &buffer[566], 6);
+         strncpy( pre_recp_date, &buffer[573], 8);
+         strncpy( pre_card_slip, &buffer[582], 13);
+         strncpy( rest_data.arr, &buffer[596], 55);
+         rest_data.len = strlen(rest_data.arr);
+         strncpy( card_kind,"M", 1);
+         /*****카드이용자명부터...*******/
+
+            printf( "card_gubn   == %s\n", card_gubn );
+            printf( "card_kind   == %s\n", card_kind);
+            printf( "recp_date   == %s\n", recp_date );
+            printf( "card_slip_num   == %s\n", card_slip_num );
+            printf( "rqst_num   == %s\n", rqst_num );
+            printf( "rqst_zip   == %s\n", rqst_zip );
+            printf( "dome_divs   == %s\n", dome_divs );
+            printf( "card_num   == %s\n", card_num.arr );
+            printf( "use_date   == %s\n", use_date );
+            printf( "join_stor_num   == %s\n", join_stor_num );
+            printf( "join_stor_name   == %s\n", join_stor_name.arr );
+            printf( "cmpn_num   == %s\n", cmpn_num);
+            printf( "join_repr   == %s\n", join_repr.arr );
+            printf( "join_addr1   == %s\n", join_addr1.arr );
+            printf( "join_addr2   == %s\n", join_addr2.arr );
+            printf( "join_zip   == %s\n", join_zip.arr );
+            printf( "join_tel   == %s\n", join_tel.arr );
+            printf( "join_cond   == %s\n", join_cond.arr);
+            printf( "join_type_code   == %s\n", join_type_code);
+            printf( "join_type   == %s\n", join_type.arr);
+            printf( "sign_use_amt   == %s\n", sign_use_amt );
+            printf( "use_amt   == %s\n", use_amt );
+            printf( "sign_vat   == %s\n", sign_vat );
+            printf( "vat   == %s\n", vat );
+            printf( "sign_serv_amt   == %s\n", sign_serv_amt );
+            printf( "serv_amt   == %s\n", serv_amt );
+            printf( "sign_forn_amt   == %s\n", sign_forn_amt );
+            printf( "forn_amt   == %s\n", forn_amt );
+            printf( "curc_code   == %s\n", curc_code );
+            printf( "exhg_amt   == %s\n", exhg_amt );
+            printf( "ctry_code   == %s\n", ctry_code );
+            printf( "ctry_name   == %s\n", ctry_name.arr );
+            printf( "sign_date   == %s\n", sign_date );
+            printf( "plan_date   == %s\n", plan_date );
+            printf( "reco_num   == %s\n", reco_num );
+            printf( "reco_date   == %s\n", reco_date );
+            printf( "reco_time   == %s\n", reco_time );
+            printf( "pre_recp_date   == %s\n", pre_recp_date);
+            printf( "pre_card_slip   == %s\n", pre_card_slip );
+            printf( "recp_bank_code   == %s\n", recp_bank_code);
+            printf( "recp_bran   == %s\n", recp_bran);
+             
+            printf( "rest_data  == %s\n",rest_data.arr );
+            
+            seq = seq + 1;
+
+            EXEC SQL 
+               INSERT INTO BCTP102
+                     (CARD_CMPN, CARD_GUBN, CARD_KIND, RECP_DATE, 
+	              CARD_SLIP_NUM, RQST_NUM, RQST_ZIP, DOME_DIVS, 
+	              CARD_NUM, USE_DATE, JOIN_STOR_NUM, JOIN_STOR_NAME, 
+	              CMPN_NUM, JOIN_REPR, JOIN_ADDR1, JOIN_ADDR2, 
+	              JOIN_ZIP, JOIN_TEL, JOIN_COND, JOIN_TYPE_CODE, 
+	              JOIN_TYPE, SIGN_USE_AMT, USE_AMT, SIGN_VAT , 
+	              VAT, SIGN_SERV_AMT, SERV_AMT, SIGN_FORN_AMT, 
+	              FORN_AMT, CURC_CODE, EXHG_AMT, CTRY_CODE, 
+	              CTRY_NAME, SIGN_DATE, PLAN_DATE, RECO_NUM, 
+	              RECO_DATE, RECO_TIME, PRE_RECP_DATE, PRE_CARD_SLIP, 
+	              RECP_BANK_CODE, RECP_BRAN, CMT_NUM, DATA_DATE, 
+	              SEQ, DATA_USE_YN, UPD_EMPNO, UPD_DATE, UPD_ID , BC_NUM 
+                     )
+               VALUES ( :card_cmpn, TRIM(:card_gubn), TRIM(:card_kind), TRIM(:recp_date), 
+                        nvl(TRIM(:card_slip_num),'X'), nvl(TRIM(:rqst_num), 'X'), 
+                        nvl(TRIM(:rqst_zip),'X'), nvl(TRIM(:dome_divs),'X'), 
+                        nvl(TRIM(:card_num),'X'), nvl(TRIM(:use_date),'X'), 
+                        nvl(TRIM(:join_stor_num),'X'), nvl(TRIM(:join_stor_name),'X') , 
+                        nvl(TRIM(:cmpn_num),'X'), nvl(TRIM(:join_repr),'X'), 
+                        nvl(TRIM(:join_addr1),'X'), nvl(TRIM(:join_addr2),'X'), 
+                        nvl(TRIM(:join_zip),'X'), nvl(TRIM(:join_tel),'X'), 
+                        nvl(TRIM(:join_cond),'X'), nvl(TRIM(:join_type_code),'X'), 
+                        nvl(TRIM(:join_type),'X'), nvl(TRIM(:sign_use_amt),'+'), 
+                        to_number(:use_amt),       nvl(TRIM(:sign_vat),'+') , 
+                        to_number(:vat),           nvl(TRIM(:sign_serv_amt),'+'), 
+                        to_number(:serv_amt), nvl(TRIM(:sign_forn_amt),'+'), 
+                        to_number(:forn_amt), nvl(TRIM(:curc_code),'X'), 
+                        nvl(to_number(:exhg_amt),0), nvl(TRIM(:ctry_code), 'X'),
+                        nvl(TRIM(:ctry_name),'X'), nvl(TRIM(:sign_date),'X'), 
+                        nvl(TRIM(:plan_date),'X'), nvl(TRIM(:reco_num),'X'), 
+                        nvl(TRIM(:reco_date),'X'), nvl(TRIM(:reco_time),'X'), 
+                        nvl(TRIM(:pre_recp_date),'X'), nvl(TRIM(:pre_card_slip),'X'), 
+                        nvl(TRIM(:recp_bank_code),'X'), nvl(TRIM(:recp_bran),'X'), 
+                        nvl(TRIM(:cmt_num),'X'), nvl(TRIM(:data_date),'X'), 
+                        to_number(:seq), 'N', 'auto', SYSDATE, 'auto' , TRIM(:rest_data) 
+                      );
+
+             if(SQLCODE == SQL_DUP)
+               {
+                       printf("BCTP102 INSERT 01 DUP ERROR : %d\n",sqlca.sqlcode);
+                       close(fp);
+                       EXEC SQL ROLLBACK WORK;
+                       return FAILURE;
+                }
+              else if(SQLCODE != SQL_OK ){
+                       printf("BCTP102 INSERT 02  ERROR : %d\n",sqlca.sqlcode);
+                       close(fp);
+                       EXEC SQL ROLLBACK WORK;
+                       return FAILURE;
+                }
+         }
+         else if (strncmp(chck, "T", 1) == 0)
+         {
+            f_int =1; 
+         }
+     } 
+   }
+   else
+   {
+      f_int = 0;
+      printf("BCUSEDATA.dat 파일을 찾을수 없습니다!\n");
+      printf( "f_int   == %d\n", f_int);
+   }
+   close(fp);
+
+
+
+   /***화일이 없을 때****/
+   if (f_int == 0)
+   {
+       printf( "f_int   == %d\n", f_int);
+      system( "rm /app/acct/fb/card/card_use_bc/BCUSEDATA.dat");  
+    /*   system( "rm /app/acct/fb/card_test/card_use_bc/BCUSEDATA.dat");  */  /*테스트디비용*/ 
+   }
+   else
+   {
+       printf( "f_int   == %d\n", f_int);
+       system( "sh /app/acct/fb/card/card_use_bc/bcdata_bk.sh"); 
+    /*   system( "sh /app/acct/fb/card_test/card_use_bc/bcdata_bk.sh");     */  /*테스트디비용*/  
+   }
+   EXEC SQL COMMIT;
+   return SUCCESS;
+}
