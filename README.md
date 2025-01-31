@@ -298,3 +298,11 @@ http://server-ip:8080/guacamole
 23. user-mapping.xml 파일에서 지정한 자격 증명을 사용하여 로그인합니다. 로그인하면 모든 연결 섹션 아래의 버튼에 나열된 파일에서 정의한 서버 연결을 찾을 수 있습니다.
 24. Ubuntu 20.04 LTS 서버에 액세스하려면 연결을 클릭하면 원격 Ubuntu 서버에 대한 SSH 연결이 시작됩니다. 암호를 입력하라는 메시지가 표시되고 암호를 입력하고 ENTER를 누르면 그림과 같이 원격 시스템에 로그인됩니다.
 -------------------------------
+
+## PRO-C
+proc iname=pc_card_use_load
+gcc -c pc_card_use_load.c
+gcc -o pc_card_use_load pc_card_use_load.o -L$ORACLE_HOME/lib -ldl -lm -lclntsh
+
+## KEY
+2GVN2-4CQT3-WDF7R-HCT2Y-VQ2JX-BGYANG
