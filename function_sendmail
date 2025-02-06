@@ -1,0 +1,72 @@
+CREATE OR REPLACE FUNCTION PUB.FUNC_SNDMAIL
+      ( TO_ID IN VARCHAR2,
+        FROM_ID    IN VARCHAR2,
+        subject   IN VARCHAR2,
+        CC_ID     IN VARCHAR2,
+        message   IN VARCHAR2)
+      RETURN VARCHAR2
+      AS
+        mailhost VARCHAR2(100) := 'spam.gsconst.co.kr';
+        --mailhost VARCHAR2(100) := 'mail.gsconst.co.kr';
+        --mailhost VARCHAR2(100) := '203.247.140.162';
+        mail_msg VARCHAR2(8000) ;
+        msg_body varchar2(20000);
+        crlf varchar2(2) := chr(13)||chr(10);
+        mail_conn utl_smtp.connection;
+        cc_list pack_tree.TAB_STR;
+        to_list pack_tree.TAB_STR;
+        add_list pack_tree.TAB_STR;
+        add_cnt number := 0;
+      BEGIN
+         mail_msg := ' ';
+         mail_conn :=utl_smtp.open_connection(mailhost,25);
+         utl_smtp.helo(mail_conn,mailhost);
+         utl_smtp.mail(mail_conn,FROM_ID);
+         cc_list.delete;
+         to_list.delete;
+         add_list.delete;
+         add_cnt := add_cnt + 1;
+         add_list(add_cnt) := 'From:'||FROM_ID || crlf;
+         to_list := pack_tree.fn_split(TO_ID,',');
+         IF to_list.count > 0 THEN
+            FOR i IN 1..to_list.LAST LOOP
+               utl_smtp.rcpt(mail_conn,to_list(i));
+               add_cnt := add_cnt + 1;
+               add_list(add_cnt) := 'To:'||  to_list(i) || crlf;
+               --DBMS_OUTPUT.PUT_LINE ( to_list(i) ) ;
+            END LOOP;
+         END IF;
+         cc_list := pack_tree.fn_split(CC_ID,',');
+         IF cc_list.count > 0 THEN
+            FOR i IN 1..cc_list.LAST LOOP
+               utl_smtp.rcpt(mail_conn,cc_list(i));
+               add_cnt := add_cnt + 1;
+               add_list(add_cnt) := 'cc:'||  cc_list(i) || crlf;
+               --DBMS_OUTPUT.PUT_LINE ( cc_list(i) ) ;
+            END LOOP;
+         END IF;
+         IF inStr( UPPER(MESSAGE), 'CONTENT-TYPE' ) BETWEEN 1 AND 10 THEN
+            mail_msg := 'MIME-Version: 1.0' ||crlf ||
+            'Content-Type: text/html; charset="ks_c_5601-1987"' ||crlf ||
+            'Date:'||to_char(sysdate,'yyyy-mm-dd hh24:mi:ss')|| crlf ||
+            'Subject:'||subject|| crlf;
+            msg_body := substr(MESSAGE, instr(message,chr(10)) + 1);
+         ELSE
+             mail_msg := 'Date:'||to_char(sysdate,'yyyy-mm-dd hh24:mi:ss')|| crlf ||
+                         'Subject:'||subject|| crlf;
+             msg_body := message;
+         END IF;
+         DBMS_OUTPUT.PUT_LINE(mail_msg);
+         IF add_list.count > 0 THEN
+            FOR i IN 1..add_list.LAST LOOP
+               mail_msg := mail_msg || add_list(i);
+            END LOOP;
+         END IF;
+         mail_msg := mail_msg || ''||crlf||msg_body;
+         utl_smtp.open_data(mail_conn);
+         utl_smtp.write_raw_data(mail_conn, UTL_RAW.CAST_TO_RAW(mail_msg));
+         --utl_smtp.write_data(mail_conn, mail_msg);
+         utl_smtp.close_data(mail_conn);
+         utl_smtp.quit(mail_conn);
+         RETURN '0';
+     END;

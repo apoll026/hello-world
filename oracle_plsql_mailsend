@@ -1,0 +1,151 @@
+CREATE OR REPLACE PROCEDURE proc_card_mail_send ( p_mail_flag IN VARCHAR2,
+                                                  p_date  IN VARCHAR2,
+                                                  p_flag     OUT NUMBER,
+                                                  p_msg    OUT VARCHAR2 )
+IS
+
+    -------------[ MAIL 관련 ]--------------
+    user_err           EXCEPTION;
+    msg_subject        VARCHAR(100);
+    msg_txt            VARCHAR2(4000);
+
+    v_sender           VARCHAR2(40);
+    v_receiver         VARCHAR2(100);
+    v_ext              VARCHAR2(1);
+
+    v_loginid          VARCHAR2(20);
+    v_empno            VARCHAR2(20);
+    v_empnm            VARCHAR2(20);
+    v_empmailid        VARCHAR2(20);
+    v_deptnm           VARCHAR2(60);
+    v_jknm             VARCHAR2(20) ;
+    v_empstatus        VARCHAR2(20) ;
+    v_ttelno           VARCHAR2(20) ;
+    v_retn_val         varchar2(10);
+
+    v_tmpcnt            BINARY_INTEGER;
+
+    i                   BINARY_INTEGER := 1;     -- 배열인덱스
+
+BEGIN
+
+
+    v_ext := '';
+    BEGIN
+        select 'X' INTO v_ext
+          from fatp300 a
+         where a.paym_date = p_date
+           and a.mail_flag = p_mail_flag
+           and rownum = 1;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+           v_ext := '';
+        when OTHERS THEN
+           v_ext := '';
+    END;
+
+    IF v_ext is NULL
+      OR length(v_ext) = 0
+      OR  v_ext <> 'X' then
+        p_msg := '메일 전송할 건수가 없습니다.';
+        raise user_err;
+    END IF;
+
+   IF p_mail_flag like 'X%' THEN
+    v_sender := 'jmkim';
+   ELSE
+--    v_sender := '전자전표SYSTEM';
+    v_sender := 'accounting@gsenc.com';--'재무팀@gsconst.co.kr';   2017.05.31 변경
+   END IF;
+-------------------------------------------------------------------------------
+-- 메일 내용생성
+-------------------------------------------------------------------------------
+  msg_txt := 'CONTENT-TYPE'||'
+';
+   -- 대상정보를 읽어온다.
+   for mail_rec IN   ( select A.SEQ SEQ,
+                              A.SEND_MAIL SEND_MAIL,
+                              A.SEND_EMPNO SEND_EMPNO,
+                              A.CARD_EMPNO CARD_EMPNO,
+                              A.SUBJ_NAME SUBJ_NAME,
+                              A.CONT_NOTE CONT_NOTE
+                            from FATP300 A
+                           where A.PAYM_DATE = p_date
+                             and a.mail_flag = p_mail_flag
+                              -- 전무급 이상은 메일발송 제외 20130930
+                              AND a.send_mail NOT IN ( 
+                                                      select      nvl(b.MAIL_ID, 'X')
+                                                      from        faty400 b 
+                                                      where       b.EMP_STTU = 'C'
+                                                      and         b.TITL_CODE in ('C0','B0','D0','POS003','POS004','POS005') ) /*C20151001_84757 신인사개편*/
+--                              AND ROWNUM = 1  -- 테스트용 
+--                            AND   A.SEND_MAIL NOT IN ('tsyu')  
+--                            AND A.SEQ BETWEEN '351' AND '399'
+                           order by A.SEQ
+                        )
+   LOOP
+        v_receiver := mail_rec.send_mail||'@gsenc.com';
+        -- 테스트용
+        --v_receiver := 'yang.bongug@gsenc.com';
+        msg_subject := mail_rec.subj_name;
+        msg_txt := mail_rec.cont_note;
+
+        BEGIN
+            /*
+            mail_sendsmp.sendmail(v_receiver,
+                                  v_sender,
+                                  '',
+                                  'HTML',
+                                  --substr(p_date,5,4)||to_char(mail_rec.seq),
+                                  msg_subject,
+                                  msg_txt);
+             */
+             v_retn_val :=  FUNC_SNDMAIL(v_receiver, v_sender, msg_subject, '', msg_txt) ;
+        EXCEPTION
+            WHEN OTHERS THEN
+                p_flag := -1;
+                p_msg := 'MAIL발송중 오류가 발생하여 MAIL발송은 실패하였습니다.'||v_receiver;
+                raise user_err;
+                --RETURN;
+        END;
+/*이하, 테스트시 업데이트 하지 않음.*/
+ DBMS_OUTPUT.PUT_LINE('X') ;
+        IF   v_retn_val = '0' THEN 
+          BEGIN
+            update fatp300
+               set trg_date = sysdate,
+                   send_flag = 'Y',
+                   mail_cnt  = nvl(mail_cnt,0) +1
+             where paym_date = p_date
+               and mail_flag = p_mail_flag
+               and seq       = mail_rec.seq;
+
+         END;
+         if sql%notfound then
+             p_flag := -1;
+             p_msg := p_date||to_char(mail_rec.seq)||'fatp300 error';
+             raise user_err;
+         else
+             COMMIT;
+         end if;
+        END IF;
+
+   END LOOP;
+
+    p_flag := 0;
+    p_msg := 'MAIL 발송 성공';
+
+    COMMIT;
+EXCEPTION
+    WHEN USER_ERR THEN
+        IF LENGTH(p_msg) < 1 THEN
+            p_flag := -1;
+            p_msg := '메일 발송 실패, 에러 발생 : '||SQLERRM;
+        END IF;
+        ROLLBACK;
+    WHEN OTHERS THEN
+        p_flag := -1;
+        p_msg := 'Other 메일 발송 실패, 에러 발생 : '||SQLERRM;
+        ROLLBACK;
+
+END proc_card_mail_send;

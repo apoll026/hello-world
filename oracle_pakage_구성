@@ -1,0 +1,279 @@
+CREATE OR REPLACE PACKAGE "PKG_SLIP" AS
+	/******************************************************************************
+     NAME:      PKG_RISK_BASE
+     PURPOSE:   Risk Monitoring 기본사항들
+     REVISIONS:
+     Ver             Date      Author                   Description
+     ---------  ----------  ---------------  ------------------------------------
+     1.0        2009-07-21     효            1. Created this package.
+  ******************************************************************************/
+
+  TYPE TP_RC IS REF CURSOR;
+
+	FUNCTION FUNC_CHECK_SLIP_OPEN(p_prof_date IN VARCHAR2,
+                                p_prof_dept IN VARCHAR2,
+                                p_busn_divs IN VARCHAR2) RETURN VARCHAR2;
+                                
+  PROCEDURE PROC_UAS_GET_FATU100(i_prof_date IN VARCHAR2,
+                                 i_prof_dept IN VARCHAR2,
+                                 i_prof_clss IN VARCHAR2,
+                                 i_prof_main IN VARCHAR2,
+                                 o_rc        OUT TP_RC);
+	
+	PROCEDURE PROC_SET_EDU_BT_FATA009(i_course_code    IN  VARCHAR2,  i_class_code     IN  VARCHAR2,  i_raise_err   IN  VARCHAR2,
+                                    i_prof_date      IN  VARCHAR2,  i_prof_clss      IN  VARCHAR2,  i_prof_dept   IN  VARCHAR2,
+                                    i_prof_main      IN  VARCHAR2,  i_docu_num       IN  VARCHAR2,  i_grp_num     IN  VARCHAR2,
+                                    i_seq            IN  NUMBER,    i_sap_slip_num   IN  VARCHAR2,  i_busn_divs   IN  VARCHAR2,
+                                    i_sum_amt        IN  NUMBER,    i_sum_famt       IN  NUMBER,    i_curc_code   IN  VARCHAR2,
+                                    i_exhg_rate      IN  NUMBER,    i_exhg_date      IN  VARCHAR2,  i_made_date   IN  VARCHAR2,
+                                    i_note           IN  VARCHAR2,  i_proo_divs      IN  VARCHAR2,  i_proo_num    IN  NUMBER,
+                                    i_acct_code      IN  VARCHAR2,  i_dtls_item      IN  VARCHAR2,  i_tech_item   IN  VARCHAR2,
+                                    i_cost_dept      IN  VARCHAR2,  i_dbcr_divs      IN  VARCHAR2,  i_amt         IN  NUMBER,
+                                    i_famt           IN  NUMBER,    i_card_amt       IN  NUMBER,    i_chng_amt    IN  NUMBER,
+                                    i_prpm_amt       IN  NUMBER,    i_sorc_tax       IN  NUMBER,    i_etc_amt     IN  NUMBER,
+                                    i_srvc_amt       IN  NUMBER,    i_phone          IN  NUMBER,    i_disc_amt    IN  NUMBER,
+                                    i_note2          IN  VARCHAR2,  i_prcp_amt       IN  NUMBER,    i_unit_amt    IN  NUMBER,
+                                    i_qty            IN  NUMBER,    i_tax_rate       IN  NUMBER,    i_cmpn_divs   IN  VARCHAR2,
+                                    i_cmpn_num       IN  VARCHAR2,  i_cmpn_name      IN  VARCHAR2,  i_mang_num    IN  VARCHAR2,
+                                    i_out_curc_code  IN  VARCHAR2,  i_out_famt       IN  NUMBER,    i_issu_date   IN  VARCHAR2,
+                                    i_fnsh_date      IN  VARCHAR2,  i_intr_rate      IN  NUMBER,    i_vat_code    IN  VARCHAR2,
+                                    i_amt_vat        IN  NUMBER,    i_vat            IN  NUMBER,    i_back_year   IN  VARCHAR2,
+                                    i_back_slip_num  IN  VARCHAR2,  i_back_slip_seq  IN  VARCHAR2,  i_card_num    IN  VARCHAR2,
+                                    i_card_date      IN  VARCHAR2,  i_card_seq       IN  VARCHAR2,  i_appr_num    IN  VARCHAR2,
+                                    i_sett_code      IN  VARCHAR2,  i_dmnd_empno     IN  VARCHAR2,  i_rcpt_type   IN  VARCHAR2,
+                                    i_rcpt_meth      IN  VARCHAR2,  i_rcpt_acnt      IN  VARCHAR2,  i_rcpt_date   IN  VARCHAR2,
+                                    i_dbcr_type      IN  VARCHAR2,  i_upd_empno      IN  VARCHAR2,  i_bank_code   IN  VARCHAR2,
+                                    i_card_yn        IN  VARCHAR2,  i_inner_code     IN  VARCHAR2,  i_inner_dept  IN  VARCHAR2,
+                                    i_item_code      IN  VARCHAR2,  i_dept_divs      IN  VARCHAR2,  i_acct_divs   IN  VARCHAR2,
+                                    i_cost_divs      IN  VARCHAR2,  i_note_divs      IN  VARCHAR2,  i_item_divs   IN  VARCHAR2,
+                                    i_type_divs      IN  VARCHAR2,  i_inv_no         IN  VARCHAR2,  i_doc_no      IN  VARCHAR2,
+                                    i_doc_note       IN  VARCHAR2,  i_enclose        IN  NUMBER,    i_tran_flag   IN  VARCHAR2,
+                                    i_out_exhg_rate  IN  NUMBER,    o_msg           OUT VARCHAR2);
+END PKG_SLIP;
+
+
+CREATE OR REPLACE PACKAGE BODY PKG_SLIP AS
+  /******************************************************************************
+     NAME:      PKG_RISK_BASE
+     PURPOSE:   Risk Monitoring 기본사항들
+     REVISIONS:
+     Ver             Date      Author                   Description
+     ---------  ----------  ---------------  ------------------------------------
+     1.0        2009-06-07     배기정             1. Created this package.
+  ******************************************************************************/
+
+	PROCEDURE PROC_SET_EDU_BT_FATA009(i_course_code    IN  VARCHAR2,  i_class_code     IN  VARCHAR2,  i_raise_err   IN  VARCHAR2,  
+                                    i_prof_date      IN  VARCHAR2,  i_prof_clss      IN  VARCHAR2,  i_prof_dept   IN  VARCHAR2,
+                                    i_prof_main      IN  VARCHAR2,  i_docu_num       IN  VARCHAR2,  i_grp_num     IN  VARCHAR2,
+                                    i_seq            IN  NUMBER,    i_sap_slip_num   IN  VARCHAR2,  i_busn_divs   IN  VARCHAR2,
+                                    i_sum_amt        IN  NUMBER,    i_sum_famt       IN  NUMBER,    i_curc_code   IN  VARCHAR2,
+                                    i_exhg_rate      IN  NUMBER,    i_exhg_date      IN  VARCHAR2,  i_made_date   IN  VARCHAR2,
+                                    i_note           IN  VARCHAR2,  i_proo_divs      IN  VARCHAR2,  i_proo_num    IN  NUMBER,
+                                    i_acct_code      IN  VARCHAR2,  i_dtls_item      IN  VARCHAR2,  i_tech_item   IN  VARCHAR2,
+                                    i_cost_dept      IN  VARCHAR2,  i_dbcr_divs      IN  VARCHAR2,  i_amt         IN  NUMBER,
+                                    i_famt           IN  NUMBER,    i_card_amt       IN  NUMBER,    i_chng_amt    IN  NUMBER,
+                                    i_prpm_amt       IN  NUMBER,    i_sorc_tax       IN  NUMBER,    i_etc_amt     IN  NUMBER,
+                                    i_srvc_amt       IN  NUMBER,    i_phone          IN  NUMBER,    i_disc_amt    IN  NUMBER,
+                                    i_note2          IN  VARCHAR2,  i_prcp_amt       IN  NUMBER,    i_unit_amt    IN  NUMBER,
+                                    i_qty            IN  NUMBER,    i_tax_rate       IN  NUMBER,    i_cmpn_divs   IN  VARCHAR2,
+                                    i_cmpn_num       IN  VARCHAR2,  i_cmpn_name      IN  VARCHAR2,  i_mang_num    IN  VARCHAR2,
+                                    i_out_curc_code  IN  VARCHAR2,  i_out_famt       IN  NUMBER,    i_issu_date   IN  VARCHAR2,
+                                    i_fnsh_date      IN  VARCHAR2,  i_intr_rate      IN  NUMBER,    i_vat_code    IN  VARCHAR2,
+                                    i_amt_vat        IN  NUMBER,    i_vat            IN  NUMBER,    i_back_year   IN  VARCHAR2,
+                                    i_back_slip_num  IN  VARCHAR2,  i_back_slip_seq  IN  VARCHAR2,  i_card_num    IN  VARCHAR2,
+                                    i_card_date      IN  VARCHAR2,  i_card_seq       IN  VARCHAR2,  i_appr_num    IN  VARCHAR2,
+                                    i_sett_code      IN  VARCHAR2,  i_dmnd_empno     IN  VARCHAR2,  i_rcpt_type   IN  VARCHAR2,
+                                    i_rcpt_meth      IN  VARCHAR2,  i_rcpt_acnt      IN  VARCHAR2,  i_rcpt_date   IN  VARCHAR2,
+                                    i_dbcr_type      IN  VARCHAR2,  i_upd_empno      IN  VARCHAR2,  i_bank_code   IN  VARCHAR2,
+                                    i_card_yn        IN  VARCHAR2,  i_inner_code     IN  VARCHAR2,  i_inner_dept  IN  VARCHAR2,
+                                    i_item_code      IN  VARCHAR2,  i_dept_divs      IN  VARCHAR2,  i_acct_divs   IN  VARCHAR2,
+                                    i_cost_divs      IN  VARCHAR2,  i_note_divs      IN  VARCHAR2,  i_item_divs   IN  VARCHAR2,
+                                    i_type_divs      IN  VARCHAR2,  i_inv_no         IN  VARCHAR2,  i_doc_no      IN  VARCHAR2,
+                                    i_doc_note       IN  VARCHAR2,  i_enclose        IN  NUMBER,    i_tran_flag   IN  VARCHAR2,
+                                    i_out_exhg_rate  IN  NUMBER,    o_msg           OUT VARCHAR2) IS
+
+  user_err        EXCEPTION;
+  v_msg           VARCHAR2(4000);
+  v_con_key       VARCHAR2(4000);
+  v_cost_dept     VARCHAR2(6)  := i_cost_dept;
+  v_use_amt       NUMBER       := i_amt;
+  v_seq           NUMBER       := 0;
+  v_amt_vat       NUMBER       := 0;
+  v_vat           NUMBER       := 0;
+  v_vat_code      VARCHAR2(2);  
+  v_cnt           NUMBER     := 0;
+  v_prof_num      VARCHAR2(30) := i_prof_date||RPAD(i_prof_dept,6,' ')||i_prof_clss||i_docu_num;
+  v_err_msg       VARCHAR2(200):= '';
+  v_forn_amt      NUMBER     := i_famt;
+  v_forn_tmp_amt  NUMBER :=0;
+  v_cnt_tmp       NUMBER;
+  v_curc_code     VARCHAR2(3) := I_CURC_CODE;
+  v_sum_famt      NUMBER(15,2) := i_sum_famt;
+  v_famt          NUMBER(15,2) := i_famt; 
+  v_sap_slip_num  FATA009.SAP_SLIP_NUM%TYPE;
+  
+  --교육비 테이블에 저장된 값 
+  CURSOR cur_edu IS
+    SELECT DIVISIONMAINCODE, SUM(COST)
+      FROM T_EDUCOSTPERSON
+     WHERE COURSECODE = i_course_code
+       AND CLASSCODE  = i_class_code
+       AND PROFNUM    = v_prof_num
+       AND PROO_NUM   = i_proo_num
+     GROUP BY DIVISIONMAINCODE
+    HAVING SUM(COST) <> 0;
+
+  BEGIN
+    
+    IF o_msg IS NULL OR LENGTH(o_msg) < 1 THEN
+      v_sap_slip_num := '00'||i_prof_main;
+    ELSE
+      v_sap_slip_num := i_sap_slip_num;  
+    END IF;
+    
+    BEGIN
+      SELECT COUNT(DISTINCT DIVISIONMAINCODE)
+        INTO v_cnt_tmp
+        FROM T_EDUCOSTPERSON
+       WHERE COURSECODE = i_course_code
+         AND CLASSCODE  = i_class_code
+         AND PROFNUM    = v_prof_num
+         AND PROO_NUM   = i_proo_num;
+    EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+        o_msg := '해당 전표번호에 대한 교육훈련비 배부내역이 없습니다';
+        RAISE user_err;
+      WHEN OTHERS THEN
+        o_msg := '교육훈련비 배부내역 확인 오류 ' || REPLACE(SQLERRM, 'ORA-', '');
+        RAISE user_err;
+    END;
+    
+    OPEN cur_edu;
+      LOOP
+
+      FETCH cur_edu INTO v_cost_dept, v_use_amt;
+      EXIT WHEN cur_edu%NOTFOUND;
+
+      --외화금액이 있을 경우 원화 비율만큼 외화금액을 배분하여 넣어줌
+      IF i_busn_divs NOT IN ('UA', 'UI') THEN
+        IF v_famt <> 0 THEN
+          IF v_curc_code = 'JPY' THEN
+            IF v_cnt_tmp <> v_cnt+1 THEN
+              v_forn_amt := round(i_famt * (v_use_amt / i_amt));
+            ELSE
+              v_forn_amt := v_famt - v_forn_tmp_amt;
+            END IF;
+            v_forn_tmp_amt := v_forn_tmp_amt + v_forn_amt;
+          ELSE
+            v_forn_amt := v_famt * (v_use_amt / i_amt);
+          END IF;
+        END IF;
+      ELSE
+        v_curc_code := 'KRW';
+        v_forn_amt := 0;
+        v_sum_famt := 0;
+        v_famt := 0;
+      END IF;
+      
+      BEGIN
+        SELECT NVL(MAX(NVL(seq, 0)), 0) + 1 INTO v_seq
+          FROM FATA009
+         WHERE PROF_DATE = i_prof_date
+           AND PROF_DEPT = i_prof_dept
+           AND PROF_CLSS = i_prof_clss
+           AND PROF_MAIN = NVL(i_prof_main, '0000')
+           AND DOCU_NUM  = NVL(i_docu_num, '0000');
+      EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+          v_seq := 1;
+        WHEN OTHERS THEN
+          o_msg := '증빙번호  시 예외 오류 ' || to_char(sqlcode);
+          RAISE user_err;
+      END;
+
+      IF v_cnt <> 0 THEN
+        v_vat_code := '00';
+        v_amt_vat := 0;
+        v_vat := 0;
+      ELSE
+        v_vat_code := i_vat_code;
+        v_amt_vat := i_amt_vat;
+        v_vat := i_vat;
+      END IF;
+     
+      BEGIN
+          INSERT INTO FATA009
+                 (PROF_DATE,                    PROF_CLSS,     PROF_DEPT,        PROF_MAIN,
+                  DOCU_NUM,                     GRP_NUM,       SEQ,              SAP_SLIP_NUM,
+                  BUSN_DIVS,                    SUM_AMT,       SUM_FAMT,         CURC_CODE,
+                  EXHG_RATE,                    EXHG_DATE,     MADE_DATE,        NOTE,
+                  PROO_DIVS,                    PROO_NUM,      ACCT_CODE,        DTLS_ITEM,
+                  TECH_ITEM,                    COST_DEPT,     DBCR_DIVS,        AMT,
+                  FAMT,                         CARD_AMT,      CHNG_AMT,         PRPM_AMT,
+                  SORC_TAX,                     ETC_AMT,       SRVC_AMT,         PHONE,
+                  DISC_AMT,                     NOTE2,         PRCP_AMT,         UNIT_AMT,
+                  QTY,                          TAX_RATE,      CMPN_DIVS,        CMPN_NUM,
+                  CMPN_NAME,                    MANG_NUM,      OUT_CURC_CODE,    OUT_FAMT,
+                  ISSU_DATE,                    FNSH_DATE,     INTR_RATE,        VAT_CODE,
+                  AMT_VAT,                      VAT,           BACK_YEAR,        BACK_SLIP_NUM,
+                  BACK_SLIP_SEQ,                CARD_NUM,      CARD_DATE,        CARD_SEQ,
+                  APPR_NUM,                     SETT_CODE,     DMND_EMPNO,       RCPT_TYPE,
+                  RCPT_METH,                    RCPT_ACNT,     RCPT_DATE,        DBCR_TYPE,
+                  UPD_EMPNO,                    UPD_DATE,      BANK_CODE,        CARD_YN,
+                  INNER_CODE,                   INNER_DEPT,    ITEM_CODE,        DEPT_DIVS,
+                  ACCT_DIVS,                    COST_DIVS,     NOTE_DIVS,        ITEM_DIVS,
+                  TYPE_DIVS,                    INV_NO,        DOC_NO,           DOC_NOTE,
+                  ENCLOSE,                      TRAN_FLAG)
+          VALUES (i_prof_date,                  i_prof_clss,   i_prof_dept,      i_prof_main,
+                  i_docu_num,                   i_grp_num,     v_seq,            v_sap_slip_num,
+                  i_busn_divs,                  i_sum_amt,     v_sum_famt,       v_curc_code,
+                  i_exhg_rate,                  i_exhg_date,   i_made_date,      i_note,
+                  i_proo_divs,                  i_proo_num,    i_acct_code,      i_dtls_item,
+                  i_tech_item,                  v_cost_dept,   i_dbcr_divs,      v_use_amt,
+                  v_famt,                       i_card_amt,    i_chng_amt,       i_prpm_amt,
+                  i_sorc_tax,                   i_etc_amt,     i_srvc_amt,       i_phone,
+                  i_disc_amt,                   i_note2,       i_prcp_amt,       i_unit_amt,
+                  i_qty,                        i_tax_rate,    i_cmpn_divs,      i_cmpn_num,
+                  substrb(i_cmpn_name, 1, 38),  i_mang_num,    i_out_curc_code,  i_out_famt,
+                  i_issu_date,                  i_fnsh_date,   i_intr_rate,      v_vat_code,
+                  v_amt_vat,                    v_vat,         i_back_year,      i_back_slip_num,
+                  i_back_slip_seq,              i_card_num,    i_card_date,      i_card_seq,
+                  i_appr_num,                   i_sett_code,   i_dmnd_empno,     i_rcpt_type,
+                  i_rcpt_meth,                  i_rcpt_acnt,   i_rcpt_date,      i_dbcr_type,
+                  i_upd_empno,                  SYSDATE,       i_bank_code,      i_card_yn,
+                  i_inner_code,                 i_inner_dept,  i_item_code,      i_dept_divs,
+                  i_acct_divs,                  i_cost_divs,   i_note_divs,      i_item_divs,
+                  i_type_divs,                  i_inv_no,      i_doc_no,         i_doc_note,
+                  i_enclose,                    i_tran_flag);
+
+      EXCEPTION
+          WHEN DUP_VAL_ON_INDEX THEN
+              o_msg := 'DUP-'|| TO_CHAR(SQLCODE) ||' ' || i_acct_code || ' ' || v_seq || '번째 항목 전표상세 추가 시 중복오류';
+              RAISE user_err;
+          WHEN OTHERS THEN
+              o_msg := 'ETC-'|| REPLACE(SQLERRM, 'ORA-', '') ||' ' || i_acct_code || ' ' || v_seq || '번째 항목 전표상세 추가 시 예외오류';
+              RAISE user_err;
+      END;
+
+
+      v_cnt := v_cnt + 1;
+      
+      END LOOP;
+
+      CLOSE cur_edu;
+
+	EXCEPTION
+    WHEN USER_ERR THEN
+      o_msg := o_msg;
+      IF i_raise_err = 'Y' THEN
+        RAISE_APPLICATION_ERROR(-20001, o_msg);
+      END IF;
+
+    WHEN OTHERS THEN
+      o_msg := o_msg;
+      IF i_raise_err = 'Y' THEN
+        RAISE_APPLICATION_ERROR(-20001, o_msg);
+    END IF;
+
+  END;
+END PKG_SLIP;
