@@ -306,3 +306,193 @@ http://server-ip:8080/guacamole
 
 #### KEY
 2GVN2-4CQT3-WDF7R-HCT2Y-VQ2JX-BGYANG
+
+#### Jenkinsfile
+pipeline {
+    agent any
+
+    environment {
+        BUILD_TYPE = 'dev'
+        REMOTE_HOST = '10.51.128.102'
+        REMOTE_USER = 'eas'
+        REMOTE_PATH = '/app/eas/easDocs/'
+        APACHECTL_PATH = '/usr/local/apache2/bin/apachectl'
+        SSH_CRED_ID = 'ssh-eas-web-dev'
+    }
+
+    stages {
+        stage('Set Variable') {
+            steps {
+                script {
+                    def jobName = env.JOB_NAME
+
+                    /*
+                        운영 배포시 대상 서버 정보 설정
+                    */
+                    if (jobName != 'DEV_EAS_WEB') {
+
+                        BUILD_TYPE = 'prd'
+
+                        // Jenkins에 등록된 Credential ID
+                        SSH_CRED_ID = 'ssh-eas-web-prd'
+
+                        switch (jobName) {
+                            case 'PRD_EAS_WEB_01':
+                                REMOTE_HOST = '165.243.180.57'
+                                break
+                            case 'PRD_EAS_WEB_02':
+                                REMOTE_HOST = '165.243.180.58'
+                                break
+                            case 'PRD_EAS_WEB_03':
+                                REMOTE_HOST = '165.243.180.59'
+                                break
+                            case 'PRD_EAS_WEB_04':
+                                REMOTE_HOST = '165.243.180.60'
+                                break
+                            default:
+                                break
+                        }
+
+                    }
+
+                    /*
+                        Logging
+                    */
+                    echo """
+                    --------------------------------------------------
+                        JOB_NAME    : ${jobName}
+                        BUILD_TYPE  : ${BUILD_TYPE}
+                        REMOTE_HOST : ${REMOTE_HOST}
+                        SSH_CRED_ID : ${SSH_CRED_ID}
+                    --------------------------------------------------
+                    """
+                }
+            }
+        }
+        stage('Build & Deploy') {
+            steps {
+                script {
+
+                    nodejs('node-20.19.0') {
+
+                        def jobName = env.JOB_NAME
+                        def buildDir = './build'
+                        def domain = 'https://deveas.gsenc.com'
+
+                        if(BUILD_TYPE == 'prd'){
+                            // 운영1인 경우 임시 디렉토리로 빌드 복사 후 운영2,3,4에서 재활용
+                            buildDir = '/app/jenkins/jenkins-2.479.2/workspace/PRD_EAS_WEB_BUILD'
+                            domain = 'https://eas.gsenc.com'
+                        }
+
+                        if(jobName == 'DEV_EAS_WEB'){
+                            sh 'yarn install --force'
+                            sh "yarn build:${BUILD_TYPE}"
+                        }else if(jobName == 'PRD_EAS_WEB_01'){
+                            sh 'yarn install --force'
+                            sh "yarn build:${BUILD_TYPE}"
+
+                            sh """
+                                rm -rf ${buildDir}/*
+                                cp -r ./build/* ${buildDir}/ 
+                            """
+                        }
+
+                        // common 파일 내 excel URL 설정
+                        sh "sed -i 's|http://localhost:7070|${domain}|g' ${buildDir}/ibsheet/plugins/ibsheet-common.js"
+
+                        sshagent([SSH_CRED_ID]) {
+                            sh """               
+                                scp -r ${buildDir}/* ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}   
+                                ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} \\
+                                'sudo ${APACHECTL_PATH} restart'
+                            """
+                        }
+                    }
+
+                    /**
+                     * 운영 환경 Health check
+                     *
+                     * 정상 접속 확인까지 3초마다 20번 재시도
+                     * 60초간 접속이 비정상인 경우 Fail
+                     * 정상 접속 확인시 즉시 종료
+                     */
+                    if(BUILD_TYPE=='prd'){
+                        sh "curl --retry 20 --retry-delay 3 --retry-connrefused -H 'Host: eas.gsenc.com' -I http://${REMOTE_HOST}/login"
+                    }
+                }
+            }
+        }
+    }
+}
+
+#### JenkinsfileRestart
+pipeline {
+    agent any
+
+    environment {
+        REMOTE_USER    = 'eas'
+        SSH_CRED_ID    = 'ssh-eas-web-prd'
+        REMOTE_PATH    = '/app/eas/easDocs/'
+        APACHECTL_PATH = '/usr/local/apache2/bin/apachectl'
+    }
+
+    stages {
+        stage('Set Variable') {
+            steps {
+                script {
+                    def jobName = env.JOB_NAME
+
+                    // 운영 서버 정보 분기
+                    switch (jobName) {
+                        case 'PRD_EAS_WEB_01_Restart':
+                            REMOTE_HOST = '165.243.180.57'
+                            break
+                        case 'PRD_EAS_WEB_02_Restart':
+                            REMOTE_HOST = '165.243.180.58'
+                            break
+                        case 'PRD_EAS_WEB_03_Restart':
+                            REMOTE_HOST = '165.243.180.59'
+                            break
+                        case 'PRD_EAS_WEB_04_Restart':
+                            REMOTE_HOST = '165.243.180.60'
+                            break
+                        default:
+                            error("운영 Restart Job이 아닙니다. Job 이름을 확인하세요.")
+                    }
+
+                    echo """
+                    --------------------------------------------------
+                    JOB_NAME      : ${jobName}
+                    REMOTE_HOST   : ${REMOTE_HOST}
+                    REMOTE_PATH   : ${REMOTE_PATH}
+                    APACHECTL_PATH: ${APACHECTL_PATH}
+                    --------------------------------------------------
+                    """
+                }
+            }
+        }
+
+        stage('Apache Restart') {
+            steps {
+                script {
+                    sshagent([env.SSH_CRED_ID]) {
+                        sh """
+                        ssh -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${REMOTE_HOST} 'sudo ${APACHECTL_PATH} restart'
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                script {
+                    sh """
+                    curl --retry 20 --retry-delay 3 --retry-connrefused -H 'Host: eas.gsenc.com' -I http://${REMOTE_HOST}/login
+                    """
+                }
+            }
+        }
+    }
+}
